@@ -1,0 +1,247 @@
+# Generation rules. This file travels with the package: edit it here and every machine uses the same rules.
+# Categories are checked top to bottom; the first one whose `match` pattern appears in the product title or
+# breadcrumb (and none of its `exclude` patterns) wins. Patterns are regular expressions, matched lowercase.
+# quads: quad budget. Tripo gets face_limit = 2 x quads (a ceiling). Meshy gets the quads as an exact target.
+# mode: since 2026-10-06 every category runs on Tripo P2 (max 25,000 quads = 50,000 triangles); the per-category
+#       mode below ("hd", "smart", "rule") is kept for reference only and no longer changes the model.
+# builder: "tripo" (AI generation, Meshy as the fallback), "rug" or "art" (built in Blender, no credits).
+
+[modes]
+# 2026-10-06 (Mukul): Tripo P2 only, every category; the texture is made in a separate step (config.toml [tripo]).
+# "hd" and "smart" stay as names for cards and jobs made before, and now also run on P2.
+p2 = { label = "P2 (Smart Mesh)", model_version = "P2-20260801", max_quads = 25000 }
+hd = { label = "P2 (Smart Mesh)", model_version = "P2-20260801", max_quads = 25000 }
+smart = { label = "P2 (Smart Mesh)", model_version = "P2-20260801", max_quads = 25000 }
+meshy = { label = "Meshy 7.1", model = "meshy-7.1", max_quads = 12000, max_photos = 4 }
+
+[rule_keywords]
+soft = ["upholstered", "fabric", "velvet", "boucle", "linen", "chenille", "leather"]
+hard = ["wood", "oak", "walnut", "metal", "iron", "steel", "cane", "rattan", "frame"]
+
+[naming]
+# Trailing selling-feature phrases dropped from the title (the physical form, e.g. "with doors", stays).
+stop_phrases = ["with usb ports", "with usb", "with led lights", "with storage drawers", "with charging station",
+                "with power outlets", "with wireless charging"]
+
+[photos]
+# Living Spaces filenames carry the view: <id>_<colour>_<material>_<type>_<view>_<nn>.jpg
+views = ["signature", "side", "front", "back", "detail", "feature", "material", "room", "dimensions", "airoom"]
+single_order = ["side", "signature", "front"]     # first match is the single photo sent to Tripo
+never_send = ["dimensions", "room", "airoom", "material"]
+# Multi-image (adopted 2026-09-30): only when there is a straight front (signature) plus a straight back.
+multi_front = "signature"
+multi_back = "back"
+
+# height_cm / length_cm: sensible overall height and longest side (W or D) in cm. The Add products form warns
+# when the numbers look like inches typed as cm (or the reverse) — Hayes, Alby, Bridgewater, Melrose 2026-10-02.
+[[category]]
+key = "rug"
+label = "Rugs"
+match = ["\\brugs?\\b"]
+builder = "rug"
+quads = 6
+photo = ["signature"]
+
+[[category]]
+key = "mirror"
+label = "Mirrors"
+match = ["\\bmirror\\b"]
+exclude = ["mirrored (dresser|nightstand|cabinet|chest)"]
+builder = "tripo"
+mode = "smart"
+quads = 400
+photo = ["signature"]
+
+[[category]]
+key = "art"
+label = "Wall art"
+match = ["wall art", "\\bart\\b", "canvas", "\\bprint\\b", "painting", "framed"]
+builder = "art"
+quads = 6
+photo = ["signature"]
+
+[[category]]
+key = "pillow"
+label = "Pillows / throws"
+match = ["\\bpillows?\\b", "\\bthrows?\\b", "\\bblanket\\b"]
+builder = "tripo"
+mode = "hd"
+quads = 600
+photo = ["signature"]
+height_cm = [5, 80]
+length_cm = [20, 260]
+
+[[category]]
+key = "office_chair"
+label = "Office chairs (always HD, 10,000 quads)"
+match = ["office chair", "work chair", "desk chair", "executive (office )?chair", "task chair", "gaming chair"]
+builder = "tripo"
+mode = "hd"
+quads = 10000
+multi_image = true
+height_cm = [75, 150]
+length_cm = [45, 95]
+
+[[category]]
+key = "outdoor_daybed"
+label = "Outdoor daybed (treated as outdoor sofa: HD, 12,000 quads, own cushions)"
+match = ["daybed"]
+builder = "tripo"
+mode = "hd"
+quads = 12000
+multi_image = true
+height_cm = [30, 200]
+length_cm = [150, 260]
+
+[[category]]
+key = "lamp"
+label = "Lamps (Smart Mesh, 3,000 quads, floor cord removed, sized by height)"
+match = ["\\blamps?\\b"]
+builder = "tripo"
+mode = "smart"
+quads = 3000
+postprocess = "lamp"
+uniform_scale_match = ["\\barc\\b", "adjustable"]
+height_cm = [25, 230]
+# listed W x D is often the base's, not the shade's (Odell, Arlen 2026-10-02): size by height, keep Tripo's proportions
+uniform_scale = true
+
+[[category]]
+key = "nightstand"
+label = "Nightstands (Smart Mesh, 2,500 quads)"
+match = ["nightstand", "bedside table", "night stand"]
+builder = "tripo"
+mode = "smart"
+quads = 2500
+height_cm = [35, 95]
+length_cm = [30, 95]
+
+[[category]]
+key = "bed"
+label = "Beds (Smart Mesh, 10,000 quads, 12\" mattress added only to an empty frame)"
+match = ["\\bbeds?\\b", "headboard", "platform bed", "bed frame"]
+exclude = ["bedroom", "bedside", "sofa bed", "bed bench"]
+builder = "tripo"
+mode = "rule"
+rule_default = "smart"
+quads = 10000
+postprocess = "bed"
+bed_frame_photo = true
+height_cm = [20, 200]
+length_cm = [180, 260]
+
+[[category]]
+key = "sectional"
+label = "Sectionals (HD, 12,000 quads)"
+match = ["sectional", "l-shaped"]
+builder = "tripo"
+mode = "rule"
+rule_default = "hd"
+quads = 12000
+height_cm = [55, 125]
+length_cm = [150, 520]
+
+[[category]]
+key = "loveseat"
+label = "Loveseats (HD, 6,000 quads)"
+match = ["loveseat"]
+builder = "tripo"
+mode = "rule"
+rule_default = "hd"
+quads = 6000
+height_cm = [55, 125]
+length_cm = [110, 210]
+
+[[category]]
+key = "sofa"
+label = "Sofas (HD, 12,000 quads)"
+match = ["\\bsofas?\\b", "\\bcouch\\b", "sleeper"]
+builder = "tripo"
+mode = "rule"
+rule_default = "hd"
+quads = 12000
+height_cm = [55, 125]
+length_cm = [140, 340]
+
+[[category]]
+key = "dining_chair"
+label = "Dining chairs / stools (Smart Mesh, 2,000 quads)"
+match = ["dining (arm )?chair", "side chair", "counter stool", "bar stool", "\\bstool\\b"]
+builder = "tripo"
+mode = "smart"
+quads = 2000
+height_cm = [60, 130]
+length_cm = [35, 80]
+
+[[category]]
+key = "accent_chair"
+label = "Accent chairs (3,500 quads)"
+match = ["accent chair", "armchair", "\\bchairs?\\b", "recliner", "glider", "swivel"]
+builder = "tripo"
+mode = "rule"
+rule_default = "hd"
+quads = 3500
+height_cm = [55, 130]
+length_cm = [50, 130]
+
+[[category]]
+key = "dining_table"
+label = "Dining tables / desks (Smart Mesh, 2,000 quads)"
+match = ["dining table", "kitchen table", "\\bdesk\\b", "writing desk"]
+builder = "tripo"
+mode = "smart"
+quads = 2000
+height_cm = [65, 110]
+length_cm = [60, 400]
+
+[[category]]
+key = "cabinet"
+label = "Cabinets / storage (Smart Mesh, 2,500 quads, closed back)"
+match = ["cabinet", "hutch", "lateral file", "file cabinet", "bookcase", "bookshelf", "etagere", "dresser", "\\bchest\\b",
+         "tv stand", "media console", "sideboard", "buffet", "credenza", "console", "armoire", "wardrobe"]
+builder = "tripo"
+mode = "smart"
+quads = 2500
+close_back = true
+height_cm = [45, 260]
+length_cm = [30, 520]
+
+[[category]]
+key = "small_table"
+label = "Coffee / side / end tables, ottomans, benches (Smart Mesh, 1,500 quads)"
+match = ["coffee table", "side table", "end table", "accent table", "ottoman", "\\bbench\\b", "\\bpouf\\b", "cocktail table"]
+builder = "tripo"
+mode = "smart"
+quads = 1500
+height_cm = [20, 80]
+length_cm = [30, 250]
+
+[[category]]
+key = "other"
+label = "Other (Smart Mesh, 2,500 quads)"
+match = [".*"]
+builder = "tripo"
+mode = "smart"
+quads = 2500
+
+# "Net panel → opacity" (a checkbox on the card, shown only when a net was found; unticked by default).
+# A mesh backrest (e.g. Sayl) is replaced by one clean surface with an edge rim and a drawn opacity map.
+# Spacing is in cm. pattern = "grid" uses pitch_u_cm / pitch_v_cm / strand_cm instead of the curved-Y values.
+[net]
+min_holes = 40
+min_hole_density = 0.08
+pattern = "curved_y"
+row_pitch_top_cm = 0.8
+row_pitch_bottom_cm = 1.3
+col_pitch_top_cm = 1.1
+col_pitch_bottom_cm = 1.9
+strand_top_cm = 0.45
+strand_bottom_cm = 0.6
+bow_top_cm = 5.0
+bow_bottom_cm = 2.5
+corner_cm = 0.15
+border_cm = 0.6
+rim_width_cm = 1.2
+rim_min_cm = 1.2
+panel_tris = 800
+tex = 2048

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Add Products · Asset Auto Generator</title>
+<style>
+:root { --bg: #eef0ef; --surface: #fbfbfa; --ink: #1d2322; --muted: #5d6765; --line: #d6dbd9; --accent: #2b5f8a; --accent-soft: #dde8f1;
+  --pass: #2f7a4b; --pass-soft: #dcefe2; --fail: #b3382c; --fail-soft: #f6dfdb; --warn-soft: #f4ead3; --r: 10px;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; --f-data: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #141817; --surface: #1c2120; --ink: #e6eae9; --muted: #9aa5a2; --line: #2e3533;
+  --accent: #7fb2dc; --accent-soft: #1f3344; --pass: #6fcb90; --pass-soft: #1b3325; --fail: #f08a7e; --fail-soft: #3a1f1c; --warn-soft: #362b15; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #141817; --surface: #1c2120; --ink: #e6eae9; --muted: #9aa5a2; --line: #2e3533; --accent: #7fb2dc; --accent-soft: #1f3344;
+  --pass: #6fcb90; --pass-soft: #1b3325; --fail: #f08a7e; --fail-soft: #3a1f1c; --warn-soft: #362b15; color-scheme: dark }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); padding-inline: 16px; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 20px 48px; display: grid; gap: 16px; }
+h1 { font: 600 26px var(--f-body); margin: 0; }
+h2 { font: 600 16px var(--f-body); margin: 0 0 8px; }
+.sub, .notice { color: var(--muted); margin: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+input[type=text], input[type=number], input[type=url], select { font: 13px var(--f-data); padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
+.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink); }
+.btn { font: 600 13px var(--f-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+.btn.go { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.bm { display: inline-block; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; cursor: grab; }
+.photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.ph { width: 104px; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; cursor: pointer; padding: 0; font: 11px var(--f-data); color: #333; text-align: center; }
+.ph img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; }
+.ph[aria-pressed="false"] { opacity: .35; }
+.ph.used { border-color: var(--accent); }
+.drop { border: 2px dashed var(--line); border-radius: var(--r); padding: 18px; text-align: center; color: var(--muted); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.plan { font-size: 13px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); }
+.plan b { font-family: var(--f-data); font-weight: 500; }
+.err { color: var(--fail); font-size: 13px; }
+.ok { color: var(--pass); font-size: 13px; }
+[hidden] { display: none !important; }
+.opts { display: grid; gap: 8px; }
+.sizes { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.sizes[hidden] { display: none; }
+.sizes table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.sizes th { text-align: left; font-weight: 500; color: var(--muted); padding: 2px 6px; font-size: 12px; }
+.sizes td { padding: 3px 6px; vertical-align: middle; }
+.sizes input[type=text] { width: 110px; } .sizes input[type=number] { width: 76px; }
+.sizes select { max-width: 200px; }
+.sizes .rm { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; }
+.added { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.added li { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--bg); }
+.added b { font: 500 13px var(--f-data); }
+.added .st { color: var(--muted); }
+code { font: 12px var(--f-data); background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sizewarn[hidden] { display: none; }
+.sizewarn { background: var(--warn-soft); border-radius: var(--r); padding: 10px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+</style></head><body>
+<div class="wrap">
+  <div><h1>Add products</h1><p class="sub">New products go straight into generation. <a href="/">Back to the review page</a></p></div>
+
+  <section class="panel">
+    <h2>1. From a Living Spaces page (recommended)</h2>
+    <p class="notice">Drag this button to your browser's bookmarks bar once. Then open any Living Spaces product page and click the bookmark: it reads that page in your own browser and fills in the form below. (Living Spaces blocks automated page requests, so the app never fetches product pages itself.)</p>
+    <p><a class="bm" id="bm" href="#">Send to Asset Auto Generator</a></p>
+  </section>
+
+  <section class="panel">
+    <h2>Or from a reference folder (CORT and other vendors)</h2>
+    <p class="notice">Paste the folder that holds the product photos, e.g. <code>G:\Shared drives\Connecter Drive\Assets\Cort\Sayl Work Chair\Files\Ref</code>. The title is taken from the asset folder's name, and the accepted GLB is also copied next to the <code>Ref</code> folder (you can change both below).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="text" id="folder" placeholder="Folder with the product photos" style="flex:1;min-width:280px"><button type="button" class="btn" id="loadfolder">Load photos</button></div>
+    <span id="foldermsg" class="notice" aria-live="polite"></span>
+  </section>
+
+  <form class="panel" id="f" autocomplete="off">
+    <h2>Check the details</h2>
+    <div class="grid">
+      <label style="grid-column:1/-1">Product title <input type="text" id="title" required></label>
+      <label style="grid-column:1/-1">Product page (optional) <input type="url" id="url" placeholder="https://www.livingspaces.com/pdp-... or the vendor's page"></label>
+      <label>Vendor <input type="text" id="vendor" list="vendorlist" value="Living Spaces" title="Each vendor gets its own folder in the tool's assets folder. Type a new name for a new vendor."><datalist id="vendorlist"><option>Living Spaces</option><option>CORT</option><option>Other</option></datalist></label>
+      <label>Units <select id="unit"><option value="in">inches</option><option value="cm">centimetres</option></select></label>
+      <label>Width <input type="number" id="w" step="0.01" min="0" required></label>
+      <label>Depth <input type="number" id="d" step="0.01" min="0" required></label>
+      <label>Height <input type="number" id="h" step="0.01" min="0" required></label>
+      <label style="grid-column:1/-1">Also copy the accepted GLB to this folder (optional) <input type="text" id="exportdir" placeholder="e.g. G:\Shared drives\Connecter Drive\Assets\Cort\Sayl Work Chair\Files"></label>
+      <label>Category <select id="cat"></select></label>
+      <label>Tripo model <select id="mode"><option value="">P2 (Smart Mesh), texture as a separate step</option></select></label>
+      <label>Quad budget (per unit) <input type="number" id="quads" step="100" min="100"></label>
+      <label>Asset name <input type="text" id="name"></label>
+    </div>
+    <div class="opts">
+      <label class="chk"><input type="checkbox" id="setchk"> Set of <input type="number" id="units" min="2" max="12" value="3" style="width:64px"> identical units side by side (one is generated, then copied)</label>
+      <label class="chk"><input type="checkbox" id="closeback"> Close the back (cabinets, hutches, open shelving)</label>
+      <label class="chk"><input type="checkbox" id="sizeschk"> Comes in more than one size (e.g. queen and king): one generation, the other sizes built from it for free</label>
+      <label class="chk" id="artrow" hidden>Wall art depth <select id="artkind"><option value="frame">Frame, 2.5 cm</option><option value="canvas">Canvas, 4 cm</option></select></label>
+    </div>
+    <div class="sizes" id="sizes" hidden>
+      <table><thead><tr><th>In the photos</th><th>Size name</th><th>Width</th><th>Depth</th><th>Height</th><th>Own design</th><th>Its photo</th><th></th></tr></thead><tbody id="sizerows"></tbody></table>
+      <div><button type="button" class="btn small" id="addsize">+ Add a size</button></div>
+      <p class="notice">The size in the photos uses the width, depth and height above. Every other size is built from the same model in Blender, the ends kept and the middle stretched, and saved as <code>name_size.glb</code> when the main size is accepted. Tick <b>Own design</b> when that size looks different (a centre leg, an extra drawer, a different picture): it gets its own card made from its own photo${''}.</p>
+    </div>
+    <div>
+      <h2>Photos</h2>
+      <p class="notice" id="phnote">Click a photo to leave it out. The outlined photo(s) go to the generator. Leave out photos with doors or drawers open.</p>
+      <div class="photos" id="photos"></div>
+      <div class="drop" id="drop" tabindex="0">Or drop product photos here (keep Living Spaces' file names: the view in the name, e.g. <code>_side_18</code>, decides which photo is used)</div>
+    </div>
+    <div class="sizewarn" id="sizewarn" role="alert" hidden><span id="sizewarntxt"></span> <button type="button" class="btn small" id="sizeswitch"></button></div>
+    <div class="plan" id="plan" aria-live="polite">Fill in the title and dimensions to see the plan.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn go" id="go" disabled>Generate</button><span id="msg" aria-live="polite"></span></div>
+  </form>
+
+  <section class="panel" id="addedpanel" hidden>
+    <h2>Added this visit</h2>
+    <ul class="added" id="added"></ul>
+    <p class="notice">Progress for each one is also shown under "In progress" at the top of the <a href="/">review page</a>.</p>
+  </section>
+</div>
+<script>
+const $ = s => document.querySelector(s); const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => Number(n).toLocaleString('en-US');
+let urls = [], off = new Set(), dropped = {}, rules = null, planRes = null, local = [];   // local: photo paths from a folder on this PC
+async function api(m, u, b) { const r = await fetch(u, { method: m, headers: b ? { 'Content-Type': 'application/json' } : {}, body: b ? JSON.stringify(b) : undefined });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; }
+
+const BM = __BOOKMARKLET_JSON__.replace('PORT', location.port || '80');
+$('#bm').href = 'javascript:' + encodeURIComponent(BM).replace(/%20/g, ' ');
+$('#bm').addEventListener('click', e => { e.preventDefault(); alert('Drag this button to your bookmarks bar, then click it on a Living Spaces product page.'); });
+
+const base = p => p.split(/[\\/]/).pop();
+const files = () => [...urls.map(u => u.split('/').pop()), ...Object.keys(dropped), ...local.map(base)].filter(f => !off.has(f));
+function product() { return { title: $('#title').value.trim(), url: $('#url').value.trim(), breadcrumb: window._crumb || '',
+  dims_in: [$('#w').value, $('#d').value, $('#h').value].every(v => Number(v) > 0) ? [$('#w').value, $('#d').value, $('#h').value].map(v => Math.round(Number(v) / ($('#unit').value === 'cm' ? 2.54 : 1) * 100) / 100) : null,
+  vendor: $('#vendor').value.trim() || 'Other', unit: $('#unit').value }; }
+function overrides() { const o = {}; if ($('#cat').dataset.touched && $('#cat').value) o.category = $('#cat').value; if ($('#mode').value) o.mode = $('#mode').value;
+  if ($('#quads').dataset.touched) o.quads = Number($('#quads').value); if ($('#name').dataset.touched && $('#name').value.trim()) o.name = $('#name').value.trim();
+  if ($('#setchk').checked) o.units = Number($('#units').value); o.close_back = $('#closeback').checked; o.art_kind = $('#artkind').value;
+  if (window._photo) o.photo = window._photo;
+  if ($('#sizeschk').checked) o.sizes = sizeRows().map(r => ({ ...r, dims_in: r.dims_in.map(v => Math.round(Number(v) / ($('#unit').value === 'cm' ? 2.54 : 1) * 100) / 100) }));
+  return o; }
+
+// ---------- sizes ----------
+const BED_SIZES = ['twin', 'full', 'queen', 'king', 'cal_king'];
+function sizeRowHTML(z = {}) {
+  const ph = files();
+  return `<tr><td><input type="radio" name="mainsize" ${z.main ? 'checked' : ''} aria-label="This is the size in the photos"></td>
+    <td><input type="text" data-k="suffix" value="${esc(z.suffix || '')}" placeholder="queen" aria-label="Size name"></td>
+    ${[0, 1, 2].map(i => `<td><input type="number" step="0.01" min="0" data-k="d${i}" value="${esc(z.dims_in?.[i] ?? '')}" aria-label="${['Width', 'Depth', 'Height'][i]}"></td>`).join('')}
+    <td><input type="checkbox" data-k="own" ${z.own_design ? 'checked' : ''} aria-label="Own design"></td>
+    <td><select data-k="photo" ${z.own_design ? '' : 'hidden'}><option value="">pick its photo…</option>${ph.map(f => `<option ${f === z.photo ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></td>
+    <td><button type="button" class="rm" title="Remove this size" aria-label="Remove this size">×</button></td></tr>`;
+}
+function refreshSizePhotos() {
+  const ph = files();
+  document.querySelectorAll('#sizerows [data-k=photo]').forEach(sel => { const v = sel.value;
+    sel.innerHTML = '<option value="">pick its photo…</option>' + ph.map(f => `<option ${f === v ? 'selected' : ''}>${esc(f)}</option>`).join(''); });
+}
+function syncMainDims() {
+  document.querySelectorAll('#sizerows tr').forEach(tr => { const main = tr.querySelector('[name=mainsize]').checked;
+    [0, 1, 2].forEach(i => { const inp = tr.querySelector(`[data-k=d${i}]`); inp.disabled = main; if (main) inp.value = $(['#w', '#d', '#h'][i]).value; });
+    const own = tr.querySelector('[data-k=own]'); own.disabled = main; if (main) own.checked = false;
+    tr.querySelector('[data-k=photo]').hidden = !own.checked; });
+}
+function sizeRows() {
+  return [...document.querySelectorAll('#sizerows tr')].map(tr => ({ suffix: tr.querySelector('[data-k=suffix]').value.trim(), main: tr.querySelector('[name=mainsize]').checked,
+    dims_in: [0, 1, 2].map(i => tr.querySelector(`[data-k=d${i}]`).value), own_design: tr.querySelector('[data-k=own]').checked,
+    photo: tr.querySelector('[data-k=photo]').value || null })).filter(r => r.suffix || r.main);
+}
+function openSizes() {
+  if (!$('#sizerows').children.length) {
+    const bed = /bed/i.test(planRes?.plan?.category_key || '') && !/headboard/i.test(planRes?.plan?.category_key || '');
+    $('#sizerows').innerHTML = bed ? BED_SIZES.map(sfx => sizeRowHTML({ suffix: sfx })).join('') : sizeRowHTML({ main: true }) + sizeRowHTML();
+  }
+  syncMainDims();
+}
+$('#sizeschk').addEventListener('change', () => { $('#sizes').hidden = !$('#sizeschk').checked; if ($('#sizeschk').checked) openSizes(); });
+$('#addsize').addEventListener('click', () => { $('#sizerows').insertAdjacentHTML('beforeend', sizeRowHTML()); syncMainDims(); });
+$('#sizerows').addEventListener('click', e => { const b = e.target.closest('.rm'); if (b) { b.closest('tr').remove(); replan(); } });
+$('#sizerows').addEventListener('change', () => syncMainDims());
+['#w', '#d', '#h'].forEach(sel => $(sel).addEventListener('input', syncMainDims));
+
+function photosHTML() {
+  const used = new Set([planRes?.plan?.photos?.single, ...(planRes?.plan?.photos?.multi || [])].filter(Boolean));
+  const all = [...urls.map(u => ({ f: u.split('/').pop(), src: u })), ...Object.entries(dropped).map(([f, d]) => ({ f, src: d })),
+    ...local.map(p => ({ f: base(p), src: '/api/localimg?path=' + encodeURIComponent(p) }))];
+  $('#photos').innerHTML = all.map(p => `<button type="button" class="ph ${used.has(p.f) && !off.has(p.f) ? 'used' : ''}" data-f="${esc(p.f)}" aria-pressed="${!off.has(p.f)}" title="${esc(p.f)}">
+    <img src="${esc(p.src)}" alt="" loading="lazy">${esc(p.f.replace(/^\d+_/, '').slice(-22))}</button>`).join('') || '<span class="notice">No photos yet.</span>';
+}
+$('#sizeswitch').addEventListener('click', () => { $('#unit').value = $('#sizeswitch').dataset.unit; replan(); });
+let t = 0;
+function replan() { clearTimeout(t); t = setTimeout(async () => {
+  const p = product(); if (!p.title) { $('#plan').textContent = 'Fill in the title and dimensions to see the plan.'; $('#go').disabled = true; return; }
+  try {
+    planRes = await api('POST', '/api/intake/plan', { product: p, overrides: overrides(), filenames: files() });
+    const pl = planRes.plan, cost = planRes.cost ?? 0;
+    if (!$('#cat').dataset.touched) $('#cat').value = pl.category_key;
+    if (!$('#quads').dataset.touched) $('#quads').value = pl.quad_budget;
+    if (!$('#name').dataset.touched) $('#name').value = planRes.name;
+    if (!$('#closeback').dataset.touched) $('#closeback').checked = pl.close_back;
+    if (planRes.set_count > 1 && !$('#setchk').dataset.touched) { $('#units').value = planRes.set_count; }
+    $('#artrow').hidden = pl.builder !== 'art';
+    const sw = planRes.size_warning; $('#sizewarn').hidden = !sw;
+    if (sw) { $('#sizewarntxt').textContent = sw.message; $('#sizeswitch').textContent = sw.suggest === 'in' ? 'Switch to inches' : 'Switch to centimetres'; $('#sizeswitch').dataset.unit = sw.suggest; }
+    const ph = pl.photos.multi ? `front + back (${pl.photos.multi.filter(Boolean).join(', ')})` : (pl.photos.single || 'none found');
+    $('#plan').innerHTML = pl.builder === 'tripo'
+      ? `<b>${esc(pl.category_label)}</b> · Tripo ${esc(pl.mode_label)} · <b>${fmt(pl.quad_budget)}</b> quads${pl.units > 1 ? ` per unit × ${pl.units}` : ''} · photo: <b>${esc(ph)}</b>${pl.close_back ? ' · closed back' : ''} · <b>${cost}</b> credits`
+      : `<b>${esc(pl.category_label)}</b> · built in Blender from <b>${esc(ph)}</b> · no credits`;
+    if (planRes.exists) $('#plan').innerHTML += '<br>An asset with this name already exists: this adds a new version to it.';
+    let sizeErr = '';
+    if ($('#sizeschk').checked) {
+      const rs = sizeRows(), names = rs.map(r => r.suffix.toLowerCase());
+      if (rs.filter(r => r.main).length !== 1) sizeErr = 'Sizes: mark the one in the photos.';
+      else if (rs.some(r => !r.suffix)) sizeErr = 'Sizes: every size needs a name.';
+      else if (new Set(names).size !== names.length) sizeErr = 'Sizes: two sizes have the same name.';
+      else if (rs.some(r => !r.main && !r.dims_in.every(v => Number(v) > 0))) sizeErr = 'Sizes: fill in width, depth and height for every size (or remove the ones this product doesn’t come in).';
+      else if (rs.some(r => r.own_design && !r.photo)) sizeErr = 'Sizes: pick the photo for each size with its own design.';
+      else if ($('#setchk').checked) sizeErr = 'Sizes can’t be combined with a set of identical units.';
+      const own = rs.filter(r => r.own_design).length, extra = rs.length - 1 - own;
+      $('#plan').innerHTML += `<br>${rs.length} sizes: ${extra} built free from this model${own ? `, ${own} with their own design (${pl.builder === 'tripo' ? `${own * cost} more credits` : 'free'})` : ''}.`
+        + (sizeErr ? ` <b class="err">${esc(sizeErr)}</b>` : '');
+    }
+    const ok = p.dims_in && files().length && (pl.photos.single || pl.photos.multi) && !sizeErr;
+    $('#go').disabled = !ok; $('#go').textContent = pl.builder === 'tripo' ? `Generate · ${cost} credits` : 'Build (no credits)';
+    photosHTML(); refreshSizePhotos();
+  } catch (x) { $('#plan').textContent = 'Plan failed: ' + x.message; }
+}, 250); }
+
+document.addEventListener('input', e => { if (e.target.id === 'cat' || e.target.id === 'mode' || e.target.id === 'quads' || e.target.id === 'name' || e.target.id === 'closeback' || e.target.id === 'setchk') e.target.dataset.touched = 1; replan(); });
+document.addEventListener('change', replan);
+$('#photos').addEventListener('click', e => { const b = e.target.closest('.ph'); if (!b) return; const f = b.dataset.f; off.has(f) ? off.delete(f) : off.add(f); window._photo = null; replan(); });
+const dz = $('#drop');
+['dragenter', 'dragover'].forEach(k => dz.addEventListener(k, e => { e.preventDefault(); dz.classList.add('over'); }));
+['dragleave', 'drop'].forEach(k => dz.addEventListener(k, e => { e.preventDefault(); dz.classList.remove('over'); }));
+dz.addEventListener('drop', async e => { for (const f of e.dataTransfer.files) { if (!/\.(jpe?g|png|webp)$/i.test(f.name)) continue;
+  dropped[f.name] = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); } replan(); });
+
+$('#f').addEventListener('submit', async e => { e.preventDefault(); const go = $('#go'); go.disabled = true; $('#msg').textContent = 'Adding…'; $('#msg').className = '';
+  try {
+    const imgs = Object.fromEntries(Object.entries(dropped).filter(([f]) => !off.has(f)));
+    const res = await api('POST', '/api/intake', { product: product(), overrides: overrides(), images: imgs, image_urls: urls.filter(u => !off.has(u.split('/').pop())),
+      folder_files: local.filter(p => !off.has(base(p))), export_dir: $('#exportdir').value.trim() });
+    added.unshift({ asset: res.asset, job: res.job, cost: res.cost }); showAdded();
+    resetForm();
+    $('#msg').className = 'ok';
+    $('#msg').innerHTML = `Added <b>${esc(res.asset)}</b>. The form is clear for the next product.`
+      + (res.download_failed?.length ? `<br><span class="err">${res.download_failed.length} photo(s) couldn't be downloaded; drop them here by hand if they're needed.</span>` : '');
+  } catch (x) { $('#msg').className = 'err'; $('#msg').textContent = 'Not added: ' + x.message; go.disabled = false; }
+});
+
+// After each product the form starts clean (vendor and units are kept, since a batch is usually one vendor).
+function resetForm() {
+  ['#title', '#url', '#w', '#d', '#h', '#exportdir', '#folder', '#name', '#quads'].forEach(sel => { $(sel).value = ''; });
+  ['#cat', '#quads', '#name', '#closeback', '#setchk'].forEach(sel => { delete $(sel).dataset.touched; });
+  $('#mode').value = ''; $('#setchk').checked = false; $('#closeback').checked = false;
+  $('#sizeschk').checked = false; $('#sizes').hidden = true; $('#sizerows').innerHTML = '';
+  urls = []; dropped = {}; local = []; off = new Set(); window._photo = null; window._crumb = ''; planRes = null;
+  $('#foldermsg').textContent = ''; photosHTML(); replan();
+}
+const added = [];
+const STEP = { queued: 'waiting to start', submitting: 'uploading', generating: 'generating the mesh', texturing: 'texturing', downloading: 'downloading', 'post-processing': 'post-processing', building: 'building', done: 'done' };
+function showAdded() {
+  $('#addedpanel').hidden = !added.length;
+  $('#added').innerHTML = added.map(a => `<li><b>${esc(a.asset)}</b><span>${a.cost ? a.cost + ' credits' : 'no credits'}</span><span class="st" data-job="${esc(a.job)}">${esc(a.status || 'queued')}</span></li>`).join('');
+}
+async function pollAdded() {
+  if (added.length) {
+    try {
+      const st = await api('GET', '/api/status'), byId = Object.fromEntries(st.jobs.map(j => [j.id, j]));
+      added.forEach(a => { const j = byId[a.job];
+        a.status = !j ? 'done: on the review page' : j.status === 'error' ? 'failed: see the review page' : j.status === 'blocked' ? 'on hold: ' + (j.error || '')
+          : (STEP[j.stage] || j.stage || j.status) + (j.stage === 'generating' && j.progress != null ? ` ${j.progress}%` : ''); });
+      showAdded();
+    } catch {}
+  }
+  setTimeout(pollAdded, 3000);
+}
+pollAdded();
+
+$('#loadfolder').addEventListener('click', async () => {
+  const m = $('#foldermsg'); m.textContent = 'Reading the folder…';
+  try {
+    const r = await api('POST', '/api/intake/folder', { path: $('#folder').value.trim() });
+    local = r.files; urls = []; dropped = {}; off = new Set(local.map(base).filter(f => /dimension/i.test(f)));
+    // A new folder is a new product: its title and copy-to folder replace whatever was there.
+    $('#title').value = r.title_guess || ''; $('#exportdir').value = r.export_dir_guess || ''; $('#url').value = '';
+    ['#cat', '#quads', '#name', '#closeback', '#setchk'].forEach(sel => { delete $(sel).dataset.touched; }); window._photo = null;
+    if (r.vendor_guess) $('#vendor').value = r.vendor_guess;
+    if (r.vendor_guess === 'CORT') $('#unit').value = 'cm';
+    m.textContent = `${local.length} photo${local.length === 1 ? '' : 's'} found.` + (r.notes ? ' Notes in the folder: ' + r.notes : '');
+    replan();
+  } catch (x) { m.textContent = 'Couldn’t read that folder: ' + x.message; }
+});
+
+(async () => {
+  rules = await api('GET', '/api/rules');
+  $('#cat').innerHTML = rules.categories.map(c => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('');
+  if (location.hash.length > 1) {
+    try {
+      const d = JSON.parse(decodeURIComponent(location.hash.slice(1))); history.replaceState(null, '', '/intake');
+      const p = await api('POST', '/api/intake/parse', d);
+      $('#title').value = p.product.title || ''; $('#url').value = p.product.url || ''; window._crumb = p.product.breadcrumb || '';
+      if (p.product.dims_in) [$('#w').value, $('#d').value, $('#h').value] = p.product.dims_in;
+      urls = p.image_urls; off = new Set(urls.map(u => u.split('/').pop()).filter(f => /_(dimensions|room|airoom)_?/i.test(f)));
+      if (!p.product.dims_in) $('#msg').textContent = 'Dimensions weren’t found on the page: enter W × D × H from the product page.';
+    } catch (x) { $('#msg').className = 'err'; $('#msg').textContent = 'Couldn’t read what the bookmark sent: ' + x.message; }
+  }
+  photosHTML(); replan();
+})();
+</script>
+</body></html>

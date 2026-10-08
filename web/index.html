@@ -1,0 +1,1103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asset Auto Generator v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: review queue — sticky summary bar, then one card per asset: header, two linked 3D tiles (Tripo | Blender) with their stats, and the decision row. 10 per page. */
+:root {
+  --bg: #eef0ef; --surface: #fbfbfa; --ink: #1d2322; --muted: #5d6765; --line: #d6dbd9;
+  --accent: #2b5f8a; --accent-soft: #dde8f1;
+  --pass: #2f7a4b; --pass-soft: #dcefe2;
+  --fail: #b3382c; --fail-soft: #f6dfdb;
+  --warn: #9a6a12; --warn-soft: #f4ead3;
+  --tripo: #8a5a14; --tripo-soft: #f4ead3; --blend: #2b5f8a; --blend-soft: #dde8f1; --meshy: #5b3f8c; --meshy-soft: #e8e2f4;
+  --view-shaded: #e9ede9; --view-clay: #e6e3de;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141817; --surface: #1c2120; --ink: #e6eae9; --muted: #9aa5a2; --line: #2e3533;
+  --accent: #7fb2dc; --accent-soft: #1f3344;
+  --pass: #6fcb90; --pass-soft: #1b3325; --fail: #f08a7e; --fail-soft: #3a1f1c; --warn: #e2b659; --warn-soft: #362b15;
+  --tripo: #e2b659; --tripo-soft: #362b15; --blend: #7fb2dc; --blend-soft: #1f3344; --meshy: #c3adf0; --meshy-soft: #2c2340; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141817; --surface: #1c2120; --ink: #e6eae9; --muted: #9aa5a2; --line: #2e3533;
+  --accent: #7fb2dc; --accent-soft: #1f3344;
+  --pass: #6fcb90; --pass-soft: #1b3325; --fail: #f08a7e; --fail-soft: #3a1f1c; --warn: #e2b659; --warn-soft: #362b15;
+  --tripo: #e2b659; --tripo-soft: #362b15; --blend: #7fb2dc; --blend-soft: #1f3344; --meshy: #c3adf0; --meshy-soft: #2c2340; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); padding-inline: 16px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-block: 20px 48px; display: grid; gap: 18px; }
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 12px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; border-bottom: 1px solid var(--line); }
+h1 { font: 600 26px var(--f-display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); margin: 2px 0 0; max-width: 80ch; }
+.counts { display: flex; flex-wrap: wrap; gap: 8px; }
+.count { display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.count b { font: 500 13px var(--f-data); font-variant-numeric: tabular-nums; }
+.count[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.vendors { margin-top: 8px; }
+.uuid { margin-top: 6px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.uuid code { font: 500 12px var(--f-data); color: var(--ink); background: var(--accent-soft); padding: 1px 6px; border-radius: 4px; user-select: all; word-break: break-all; }
+.sizesbox { padding: 10px 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.sizesbox h4 { margin: 0; font: 600 13px var(--f-display); display: flex; gap: 10px; align-items: center; }
+.sizegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.sz { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; display: grid; gap: 3px; background: var(--surface); }
+.sz.done { border-color: color-mix(in srgb, var(--pass) 50%, var(--line)); }
+.sz .nm { font: 600 13px var(--f-data); } .sz .st { color: var(--muted); } .sz code { font: 11px var(--f-data); word-break: break-all; }
+.sz .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sizeview { position: relative; height: 340px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--stage, #f3f1ec); }
+.sizeview[hidden] { display: none; }
+.sizeview .view { position: absolute; inset: 0; } .sizeview .loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--muted); }
+.sizeview .lbl { position: absolute; left: 8px; top: 8px; z-index: 2; font: 600 12px var(--f-data); background: var(--surface); padding: 2px 8px; border-radius: 4px; }
+.sizeform table { border-collapse: collapse; font-size: 13px; } .sizeform th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 2px 6px; }
+.sizeform td { padding: 3px 6px; } .sizeform input[type=text] { width: 100px; font: inherit; padding: 3px 6px; } .sizeform input[type=number] { width: 72px; font: inherit; padding: 3px 6px; }
+.sizeform .rm { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; }
+.fixsize { padding: 10px 16px; border-top: 1px solid var(--line); display: grid; gap: 6px; background: var(--surface); }
+.fixsize[hidden] { display: none; }
+.fsrow { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: end; font-size: 13px; }
+.fsrow label { display: grid; gap: 2px; } .fsrow label.chk { display: flex; align-items: center; gap: 6px; }
+.fsrow input[type=number] { width: 84px; font: inherit; padding: 4px 6px; } .fsrow select { font: inherit; padding: 4px; }
+.vendors .lbl { font-size: 12px; color: var(--muted); align-self: center; }
+.tag.vendor { font-weight: 600; }
+button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.card.is-accepted { border-color: color-mix(in srgb, var(--pass) 55%, var(--line)); }
+.card.is-regen { border-color: color-mix(in srgb, var(--fail) 55%, var(--line)); }
+.chead { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+@media (max-width: 760px) { .chead { grid-template-columns: 56px minmax(0, 1fr); } .chead .ctrls { grid-column: 1 / -1; justify-content: flex-start; } }
+.ref { width: 72px; aspect-ratio: 1; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: zoom-in; max-width: 100%; }
+.name { font: 500 13px var(--f-data); word-break: break-all; margin: 0; }
+.tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+.src { font-size: 12px; color: var(--accent); }
+.ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.seg { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.seg button { border: 0; background: transparent; color: var(--ink); font: 500 12px var(--f-body); padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.light { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+.light input { width: 96px; accent-color: var(--accent); }
+.btn { font: 600 13px var(--f-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.small { font-weight: 500; font-size: 12px; padding: 6px 10px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.pair.single { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+.side { min-width: 0; border-right: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; }
+.side:last-child { border-right: 0; }
+@media (max-width: 760px) { .side { border-right: 0; border-bottom: 1px solid var(--line); } }
+.side { position: relative; }
+.side.chosen::after, .side.picking::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 5; border: 3px solid var(--pass); }
+.side.picking::after { border-color: var(--accent); }
+.stage { position: relative; aspect-ratio: 4 / 3; max-width: 100%; background: var(--view-shaded); }
+.pair.single .stage { aspect-ratio: 16 / 9; max-height: 560px; width: 100%; }
+.stage.clay { background: var(--view-clay); }
+.view { position: absolute; inset: 0; touch-action: none; cursor: grab; }
+.view:active { cursor: grabbing; }
+.badge { position: absolute; top: 10px; left: 10px; z-index: 2; font: 600 12px var(--f-body); padding: 4px 10px; border-radius: 999px; pointer-events: none; }
+.badge.tripo { background: var(--tripo-soft); color: var(--tripo); }
+.badge.blender { background: var(--blend-soft); color: var(--blend); }
+.badge.final { background: var(--pass-soft); color: var(--pass); }
+.badge.meshy { background: var(--meshy-soft); color: var(--meshy); }
+.regen [hidden] { display: none !important; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; color: #55605d; font: 13px var(--f-data); pointer-events: none; }
+.facts { padding: 12px 16px 14px; display: grid; gap: 10px; align-content: start; }
+dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding-top: 1px; }
+dd { margin: 0; font: 13px var(--f-data); font-variant-numeric: tabular-nums; word-break: break-word; }
+.meter { height: 6px; border-radius: 3px; background: var(--line); margin-top: 4px; overflow: hidden; max-width: 220px; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.meter.over i { background: var(--fail); }
+.okdim { color: var(--pass); } .offdim { color: var(--warn); }
+.flag { font-size: 13px; padding: 7px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); border-left: 3px solid var(--warn); }
+.info { font-size: 13px; padding: 7px 10px; border-radius: 8px; background: var(--bg); color: var(--muted); border-left: 3px solid var(--line); }
+
+.decide { display: grid; gap: 10px; padding: 14px 16px 16px; border-top: 1px dashed var(--line); }
+.choice { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn.pick[aria-pressed="true"][data-pick="tripo"] { background: var(--tripo-soft); border-color: var(--tripo); color: var(--tripo); }
+.btn.pick[aria-pressed="true"][data-pick="blender"] { background: var(--blend-soft); border-color: var(--blend); color: var(--blend); }
+.btn.pick[aria-pressed="true"][data-pick="regenerate"] { background: var(--fail-soft); border-color: var(--fail); color: var(--fail); }
+.btn.pick[aria-pressed="true"][data-pick="meshy"] { background: var(--meshy-soft); border-color: var(--meshy); color: var(--meshy); }
+.btn.pick[aria-pressed="true"][data-pick="prev"], .btn.pick[aria-pressed="true"][data-pick="pass"] { background: var(--pass-soft); border-color: var(--pass); color: var(--pass); }
+.btn.pick[aria-pressed="true"][data-pick="fail"] { background: var(--fail-soft); border-color: var(--fail); color: var(--fail); }
+.btn.pick[aria-pressed="true"] { font-weight: 700; }
+.btn.submit { background: var(--ink); color: var(--surface); border-color: var(--ink); margin-left: auto; }
+.regen[hidden] { display: none; }
+.regen { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
+.regen label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.regen select, .regen input[type=number] { font: 13px var(--f-data); padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0; }
+.regen input[type=number] { width: 110px; }
+textarea { width: 100%; min-height: 52px; resize: vertical; font: 13px var(--f-body); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.done { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.pill { font: 600 13px var(--f-body); padding: 6px 12px; border-radius: 999px; }
+.pill.accepted { background: var(--pass-soft); color: var(--pass); }
+.pill.regen { background: var(--fail-soft); color: var(--fail); }
+.linkbtn { border: 0; background: none; color: var(--accent); font: 500 13px var(--f-body); cursor: pointer; padding: 4px; }
+.err { color: var(--fail); font-size: 13px; }
+.notice { font-size: 13px; color: var(--muted); }
+.pager { display: flex; gap: 8px; align-items: center; justify-content: center; }
+.pager span { font-family: var(--f-data); color: var(--muted); font-variant-numeric: tabular-nums; }
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--r); padding: 36px 24px; text-align: center; color: var(--muted); }
+.empty strong { display: block; color: var(--ink); font: 600 20px var(--f-display); margin-bottom: 4px; }
+dialog { border: 0; padding: 0; border-radius: var(--r); max-width: min(92vw, 900px); background: var(--surface); }
+dialog img { display: block; width: 100%; height: auto; }
+dialog::backdrop { background: rgba(0,0,0,.55); }
+
+.qa { display: grid; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.qa h3 { margin: 0; font: 600 12px var(--f-body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.qa .qhead { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.qs { font: 700 22px var(--f-body); padding: 2px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+.qs.good { color: var(--pass); background: var(--pass-soft); border-color: var(--pass); } .qs.mid { color: var(--warn); background: var(--warn-soft); border-color: var(--warn); }
+.qs.low { color: var(--fail); background: var(--fail-soft); border-color: var(--fail); }
+.qviews { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; } .qviews span { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); }
+.qviews b { font-weight: 700; } .qviews b.good { color: var(--pass); } .qviews b.mid { color: var(--warn); } .qviews b.low { color: var(--fail); } .qsub { font-size: 12px; color: var(--muted); }
+.qa ul { margin: 0; padding-left: 18px; font-size: 13px; } .qa li.major::marker { color: var(--fail); }
+.qrenders { display: flex; gap: 4px; overflow-x: auto; } .qrenders img { width: 56px; height: 56px; border-radius: 6px; border: 1px solid var(--line); background: #e9ede9; cursor: zoom-in; flex: none; }
+.qa details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.discardrow { margin-top: 6px; font-size: 13px; } .btn.fail { border-color: var(--fail); color: var(--fail); }
+.qadec { font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); margin-bottom: 8px; }
+.qadec.accepted { background: var(--pass-soft); border-color: var(--pass); } .qadec.retry { background: var(--warn-soft); border-color: var(--warn); } .qadec.needs_person { background: var(--fail-soft); border-color: var(--fail); }
+.qachip { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.qachip.on { border-color: var(--pass); color: var(--pass); background: var(--pass-soft); }
+.steps { display: grid; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.steps h3 { margin: 0 0 2px; font: 600 12px var(--f-body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.step { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.step input { accent-color: var(--accent); }
+.step small { color: var(--muted); }
+.photos { display: flex; gap: 6px; flex-wrap: wrap; }
+.photo { width: 64px; aspect-ratio: 1; border-radius: 6px; border: 2px solid var(--line); overflow: hidden; cursor: pointer; padding: 0; background: #fff; }
+.photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.photo[aria-pressed="true"] { border-color: var(--accent); }
+.regen label.chk { display: flex; padding-bottom: 7px; }
+.chk { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--ink); }
+.statusbar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; color: var(--muted); }
+.statusbar b { color: var(--ink); font: 500 13px var(--f-data); font-variant-numeric: tabular-nums; }
+.statusbar .bad, .job.bad { color: var(--fail); }
+a.btn { text-decoration: none; display: inline-block; }
+.jobline:empty { display: none; }
+.job { font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--ink); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.job.wait { background: var(--warn-soft); } .job.warn { background: var(--warn-soft); } .job.bad { background: var(--fail-soft); } .job.ok { background: var(--pass-soft); color: var(--pass); }
+.job b { font-family: var(--f-data); }
+.joblog { flex-basis: 100%; font: 12px var(--f-data); color: var(--muted); word-break: break-all; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: sp 0.9s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.inprog { display: grid; gap: 10px; scroll-margin-top: 140px; }
+.inprog h2 { font: 600 16px var(--f-display); margin: 0; }
+.ipgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.ip { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 4px 12px; align-items: start; }
+.ip.bad { border-color: color-mix(in srgb, var(--fail) 55%, var(--line)); } .ip.warn { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.ip .noimg { grid-row: span 3; }
+.ip { position: relative; }
+.ip .stopx { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: 600 16px/1 var(--f-ui, sans-serif); cursor: pointer; opacity: 0; transition: opacity .15s; display: grid; place-items: center; padding: 0; }
+.ip:hover .stopx, .ip:focus-within .stopx, .ip .stopx:focus-visible { opacity: 1; }
+.ip .stopx:hover { color: var(--fail); border-color: var(--fail); }
+@media (hover: none) { .ip .stopx { opacity: 1; } }
+.ip.stopped { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.ip .nm { padding-right: 24px; }
+.ip .now { min-width: 0; overflow-wrap: anywhere; }
+.ip img { width: 56px; height: 56px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; grid-row: span 3; }
+.ip .nm { font: 500 13px var(--f-data); word-break: break-all; margin: 0; }
+.ip .what { font-size: 12px; color: var(--muted); }
+.ip .now { font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ip .now b { font-family: var(--f-data); font-weight: 500; }
+.steps-line { grid-column: 1 / -1; display: flex; gap: 4px; margin-top: 4px; }
+.steps-line i { flex: 1; height: 5px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+.steps-line i.done { background: var(--accent); }
+.steps-line i.cur > u { position: absolute; inset: 0; width: var(--p, 35%); background: var(--accent); text-decoration: none; }
+.steps-names { grid-column: 1 / -1; display: flex; gap: 4px; font-size: 11px; color: var(--muted); }
+.steps-names span { flex: 1; } .steps-names span.cur { color: var(--ink); font-weight: 600; }
+.statusbar a.jobs { color: inherit; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+</style></head><body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Asset Auto Generator <span class="ver">v2</span></h1>
+      <p class="sub">Version 2: Gemini scores every new version against the product photos (front, side and back) and, when Auto QA is on, accepts it or retries it for you. Each card shows the generated model with only the required steps. Tick Auto smooth (or other steps) if you want them in the saved GLB, then accept it, or fail it: the first retry runs on Meshy and starts as soon as you submit (with a short undo window). After a retry the card shows the earlier and the new version side by side, so you can keep either.</p>
+      <div class="statusbar" id="status" aria-live="polite"></div>
+    </div>
+    <div class="counts" role="group" aria-label="Filter">
+      <button class="count" data-filter="todo" aria-pressed="true">To review <b id="n-todo">0</b></button>
+      <button class="count" data-filter="accepted" aria-pressed="false">Accepted <b id="n-accepted">0</b></button>
+      <button class="count" data-filter="regen" aria-pressed="false">Regenerating <b id="n-regen">0</b></button>
+      <button class="count" data-filter="discarded" aria-pressed="false">Discarded <b id="n-discarded">0</b></button>
+      <button class="count" data-filter="all" aria-pressed="false">All <b id="n-all">0</b></button>
+    </div>
+    <div class="counts vendors" id="vendors" role="group" aria-label="Vendor" hidden></div>
+  </header>
+  <section id="inprog" class="inprog" hidden aria-live="polite">
+    <h2>In progress</h2>
+    <div class="ipgrid" id="iplist"></div>
+  </section>
+  <p class="notice" id="notice" hidden></p>
+  <main id="list" class="wrap" style="padding:0">
+    <div class="empty"><strong>Loading the review queue</strong>Generated assets appear here as they finish post-processing, 10 per page.</div>
+  </main>
+  <nav class="pager" id="pager" hidden>
+    <button class="btn" id="prev">Previous 10</button><span id="pageinfo"></span><button class="btn" id="next">Next 10</button>
+  </nav>
+</div>
+<dialog id="zoom"><img id="zoomimg" alt=""></dialog>
+
+<script type="importmap">
+{ "imports": {
+  "three": "/web/vendor/three/build/three.module.js",
+  "three/addons/": "/web/vendor/three/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const PER_PAGE = 10;
+const MAX_QUADS = { 'P2 (Smart Mesh)': 25000, 'Meshy 7.1': 12000 };   // Tripo: P2 only (2026-10-06)
+let TRIPO_COST = 120;
+const MESHY_CREDITS = 30, MESHY_MAX_PHOTOS = 4;
+// Auto smooth is the default. Remove duplicate layers is offered only when the z-fighting check found overlapping panels.
+const STEP_INFO = [
+  { key: 'smooth', label: 'Auto smooth 30°', note: 'Replaces the model’s stored normals; edges sharper than 30° stay crisp (cabinets, frames)', when: () => true },
+  { key: 'smooth45', label: 'Auto smooth 45°', note: 'Same, but edges up to 45° shade smooth (soft upholstery, rounded shapes)', when: () => true },
+  { key: 'dedupe', label: 'Remove duplicate layers', note: 'Deletes the hidden copy of the overlapping panels flagged above', when: base => (base?.dedupe_faces || 0) > 0 },
+  { key: 'mattress', label: 'Add 12" mattress', note: 'The generated bed already has a mattress or a solid top, so none was added. Tick to add one anyway', when: base => !!base?.bed_has_top },
+  { key: 'net', label: 'Net panel → opacity', note: 'Replaces the mesh backrest with one surface, an edge rim and a drawn opacity map. Built in Blender when you submit; not shown in this preview', when: base => !!base?.net?.found, preview: false },
+];
+const STEP_KEYS = STEP_INFO.map(s => s.key);
+const DEFAULT_STEPS = { smooth: false, smooth45: false, dedupe: false, mattress: false, net: false };
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => Number(n).toLocaleString('en-US');
+
+// ---------- one offscreen WebGL renderer, copied into a 2D canvas per tile ----------
+const glCanvas = document.createElement('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
+renderer.setPixelRatio(1); renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const DPR = Math.min(devicePixelRatio || 1, 2);
+const envTex = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const loader = new GLTFLoader();
+const wireMat = new THREE.LineBasicMaterial({ color: '#351c18', transparent: true, opacity: .6, depthWrite: false, toneMapped: false });
+let tiles = [], groups = [];
+const cache = new Map();   // url -> Promise<ArrayBuffer | object>
+
+function fetchJSON(url) { if (!cache.has(url)) cache.set(url, fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })); return cache.get(url); }
+async function loadGLB(url) {
+  if (!url.endsWith('.json')) return new Promise((res, rej) => loader.load(url, res, undefined, rej));
+  const j = await fetchJSON(url);                               // artifacts can't serve .glb, so it ships base64 in JSON
+  const bin = Uint8Array.from(atob(j.data), c => c.charCodeAt(0));
+  return new Promise((res, rej) => loader.parse(bin.buffer, '', res, rej));
+}
+
+function makeGroup(card) {
+  const camera = new THREE.PerspectiveCamera(35, 4 / 3, 0.1, 100000);
+  const g = { card, camera, controls: [], extent: 1, mode: 'shaded', exposure: 1.0, tiles: [] };
+  g.fit = () => {
+    const vert = THREE.MathUtils.degToRad(camera.fov / 2), horiz = Math.atan(Math.tan(vert) * camera.aspect);
+    camera.position.copy(new THREE.Vector3(1.1, .7, 1.5).normalize().multiplyScalar(g.extent / 2 / Math.sin(Math.min(vert, horiz)) * 1.16));
+    camera.near = g.extent / 1000; camera.far = g.extent * 100; camera.updateProjectionMatrix();
+    g.controls.forEach(c => { c.target.set(0, 0, 0); c.update(); });
+  };
+  groups.push(g); return g;
+}
+
+// A tile renders one GLB. `live` tiles (the right one) keep the untouched geometry so steps can be toggled.
+function makeTile(g, el, src, live) {
+  const out = document.createElement('canvas'); out.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block'; el.append(out);
+  const c = new OrbitControls(g.camera, el); c.enableDamping = false; g.controls.push(c);
+  c.addEventListener('change', () => g.controls.forEach(o => { if (o !== c) o.target.copy(c.target); }));
+  const scene = new THREE.Scene(); scene.environment = envTex;
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x8c9b8f, .4), key = new THREE.DirectionalLight(0xffffff, 1); key.position.set(3, 6, 4);
+  scene.add(hemi, key);
+  const t = { g, el, out, ctx: out.getContext('2d'), scene, hemi, key, controls: c, meshes: [], clay: new Map(), wires: new Map(), loaded: false, live, mask: null, steps: null, onReady: null };
+  g.tiles.push(t); tiles.push(t);
+  Promise.all([loadGLB(src.glb), live && src.mask ? fetchJSON(src.mask).catch(() => null) : null]).then(([gltf, mask]) => {
+    const root = gltf.scene; root.updateMatrixWorld(true);
+    root.traverse(o => { if (o.isMesh) { t.meshes.push(o); o.userData.orig = o.material; o.userData.geom0 = o.geometry; } });
+    if (live) prepareLive(t, mask);
+    const box = new THREE.Box3().setFromObject(root);
+    root.position.sub(box.getCenter(new THREE.Vector3())); scene.add(root);
+    const ext = box.getSize(new THREE.Vector3()).length();
+    if (ext > g.extent * 0.999) { g.extent = ext; g.fit(); }   // both tiles share one camera; frame the larger
+    t.loaded = true; if (t.steps) applySteps(t, t.steps); applyMode(t, g.mode);
+    el.parentElement.querySelector('.loading')?.remove();
+    t.onReady && t.onReady(t);
+  }).catch(() => { const l = el.parentElement.querySelector('.loading'); if (l) l.textContent = 'Could not load this GLB'; });
+  return t;
+}
+function disposeTile(t) {
+  t.controls.dispose(); t.g.controls = t.g.controls.filter(c => c !== t.controls);
+  t.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    ms.forEach(m => { Object.values(m).forEach(x => x && x.isTexture && x.dispose()); m.dispose(); }); });
+  t.meshes.forEach(m => { m.userData.geom0?.dispose(); });
+  t.clay.forEach(m => m.dispose()); t.out.remove();
+  tiles = tiles.filter(x => x !== t); t.g.tiles = t.g.tiles.filter(x => x !== t);
+}
+
+// ---------- live steps (right tile) ----------
+function prepareLive(t, mask) {
+  // mask: centroids (glTF coords, cm) of triangles "Remove duplicate layers" would delete
+  const cell = 0.5, grid = new Map();
+  (mask?.faces || []).forEach(p => { const k = p.map(v => Math.floor(v / cell)).join(','); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(p); });
+  const hit = (x, y, z) => {
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
+      const l = grid.get(`${cx + i},${cy + j},${cz + k}`); if (!l) continue;
+      for (const p of l) if (Math.abs(p[0] - x) < 0.02 && Math.abs(p[1] - y) < 0.02 && Math.abs(p[2] - z) < 0.02) return true;
+    }
+    return false;
+  };
+  t.maskCount = 0;
+  for (const m of t.meshes) {
+    const g0 = m.userData.geom0, pos = g0.attributes.position, idx = g0.index ? g0.index.array : null, mw = m.matrixWorld;
+    const n = idx ? idx.length / 3 : pos.count / 3, keep = [], v = new THREE.Vector3(), a = new THREE.Vector3();
+    for (let f = 0; f < n; f++) {
+      a.set(0, 0, 0);
+      for (let c = 0; c < 3; c++) { v.fromBufferAttribute(pos, idx ? idx[f * 3 + c] : f * 3 + c).applyMatrix4(mw); a.add(v); }
+      a.divideScalar(3);
+      if (grid.size && hit(a.x, a.y, a.z)) { t.maskCount++; continue; }
+      for (let c = 0; c < 3; c++) keep.push(idx ? idx[f * 3 + c] : f * 3 + c);
+    }
+    m.userData.keepIdx = keep;
+  }
+}
+function applySteps(t, steps) {
+  t.steps = steps; if (!t.loaded) return;
+  let tris = 0;
+  for (const m of t.meshes) {
+    let g = m.userData.geom0.clone();
+    if (steps.dedupe && m.userData.keepIdx) g.setIndex(m.userData.keepIdx);
+    if (steps.smooth || steps.smooth45) { const s = toCreasedNormals(g, THREE.MathUtils.degToRad(steps.smooth45 ? 45 : 30)); g.dispose(); g = s; }
+    if (m.geometry !== m.userData.geom0) m.geometry.dispose();
+    m.geometry = g; tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    if (t.wires.has(m)) { const w = t.wires.get(m); w.geometry.dispose(); w.geometry = new THREE.WireframeGeometry(g); }
+  }
+  t.liveTris = Math.round(tris);
+}
+
+function applyMode(t, mode) {
+  const clay = mode === 'clay';
+  // Shaded lighting lowered 2026-10-06 (Mukul: textures looked washed out; half the old exposure looked right):
+  // environment 0.6 + hemisphere 0.4 + key 1.0 at exposure 1.0 measures the same as the old lights at exposure 0.55.
+  t.hemi.intensity = clay ? .75 : .4; t.key.intensity = clay ? 3.2 : 1; t.scene.environmentIntensity = clay ? .22 : .6;
+  for (const m of t.meshes) {
+    const orig = m.userData.orig, list = Array.isArray(orig) ? orig : [orig];
+    list.forEach(mt => { mt.wireframe = mode === 'wire'; });
+    if (clay) {
+      const cm = o => { if (!t.clay.has(o)) t.clay.set(o, new THREE.MeshStandardMaterial({ color: '#9f4638', roughness: .65, metalness: 0, side: o.side, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })); return t.clay.get(o); };
+      m.material = Array.isArray(orig) ? orig.map(cm) : cm(orig);
+      if (!t.wires.has(m)) { const l = new THREE.LineSegments(new THREE.WireframeGeometry(m.geometry), wireMat); l.renderOrder = 2; m.add(l); t.wires.set(m, l); }
+      t.wires.get(m).visible = true;
+    } else { m.material = orig; if (t.wires.has(m)) t.wires.get(m).visible = false; }
+  }
+  t.el.closest('.stage').classList.toggle('clay', clay);
+}
+
+function frame() {
+  for (const t of tiles) {
+    if (!t.loaded || !t.el.isConnected) continue;
+    const r = t.el.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth || r.width < 2) continue;
+    const w = Math.round(r.width * DPR), h = Math.round(r.height * DPR);
+    if (t.out.width !== w || t.out.height !== h) { t.out.width = w; t.out.height = h; }
+    if (glCanvas.width < w || glCanvas.height < h) renderer.setSize(Math.max(w, glCanvas.width), Math.max(h, glCanvas.height), false);
+    const cam = t.g.camera; cam.aspect = w / h; cam.updateProjectionMatrix();
+    renderer.toneMappingExposure = t.g.exposure;
+    renderer.setClearColor(t.g.mode === 'clay' ? '#e6e3de' : '#e9ede9', 1);
+    renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h); renderer.setScissorTest(true);
+    renderer.render(t.scene, cam);
+    t.ctx.drawImage(glCanvas, 0, glCanvas.height - h, w, h, 0, 0, w, h);   // WebGL origin is bottom-left
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+function disposeAll() { [...tiles].forEach(disposeTile); groups = []; }
+
+// ---------- data ----------
+let assets = [], decisions = {}, filter = 'todo', vendor = 'all', page = 0, db = null, draft = {}, reopened = new Set();
+const ACCEPT = new Set(['tripo', 'right', 'meshy', 'prev', 'blender', 'pass']), REGEN = new Set(['regenerate', 'fail']);
+const statusOf = a => { if (a.status === 'discarded') return 'discarded'; const r = decisions[a.id]?.result; return ACCEPT.has(r) ? 'accepted' : REGEN.has(r) ? 'regen' : 'todo'; };
+const isProc = a => a.procedural === true;   // built in Blender without an AI generator (rugs, wall art): one tile, Pass or Fail
+const isNew = a => !isProc(a) && !!(a.versions && a.versions.tripo && a.versions.tripo.glb && !a.versions.blender);
+// A card shows one tile per version: the new result, plus (after a retry) the version that was failed:
+// 'prev' + 'tripo' after a Tripo retry, 'tripo' + 'meshy' after a Meshy retry. Each tile has its own steps.
+const hasMeshy = a => !!a.versions?.meshy?.glb;
+const sidesOf = a => hasMeshy(a) ? ['tripo', 'meshy'] : a.versions?.prev?.glb ? ['prev', 'tripo'] : ['tripo'];
+const isCompare = a => isNew(a) && sidesOf(a).length === 2;
+const pickSteps = s => Object.fromEntries(STEP_KEYS.map(k => [k, !!(s || {})[k]]));
+const liveSides = a => sidesOf(a);
+const baseOf = (a, side) => a.versions[side === 'right' ? 'tripo' : side];
+function stepsOf(a, side) {
+  const d = draft[a.id], dec = decisions[a.id];
+  if (d?.stepsBy?.[side]) return pickSteps(d.stepsBy[side]);
+  if (dec?.steps && (dec.result === side || (side === 'tripo' && dec.result === 'right'))) return pickSteps(dec.steps);
+  const q = baseOf(a, side)?.qa;                          // v2: start from the steps the QA scored best
+  if (q && q.glb && q.steps && baseOf(a, side).glb?.endsWith(q.glb)) return pickSteps({ ...DEFAULT_STEPS, ...q.steps });
+  return pickSteps(DEFAULT_STEPS);
+}
+const serviceName = side => side === 'meshy' ? 'Meshy' : 'Tripo';
+// "v1 · Tripo" on a comparison of two versions, "Meshy" / "Tripo" otherwise
+function sideName(a, side) {
+  if (side === 'prev') return `${a.versions.prev.label || 'Earlier'} · ${a.versions.prev.service === 'meshy' ? 'Meshy' : 'Tripo'}`;
+  if (a && a.versions?.prev?.glb && side === 'tripo') return `v${a.version || 2} · Tripo`;
+  return serviceName(side);
+}
+function stepsLabel(s, side = 'tripo', a = null) {
+  const on = STEP_INFO.filter(x => s[x.key]).map(x => x.label);
+  return `${a ? sideName(a, side) : serviceName(side)} version` + (on.length ? ' + ' + on.join(', ') : ' as generated');
+}
+const vendorOf = a => a.vendor || 'Living Spaces';
+const inVendor = a => vendor === 'all' || vendorOf(a) === vendor;
+function counts() {
+  const mine = assets.filter(inVendor), c = { todo: 0, accepted: 0, regen: 0, discarded: 0, all: mine.length };
+  mine.forEach(a => c[statusOf(a)]++);
+  for (const k in c) $('#n-' + k).textContent = c[k];
+  const vs = [...new Set(assets.map(vendorOf))].sort(), box = $('#vendors');
+  if (!vs.includes(vendor) && vendor !== 'all') vendor = 'all';
+  box.hidden = vs.length < 2;
+  const h = '<span class="lbl">Vendor</span>' + [['all', 'All', assets.length], ...vs.map(v => [v, v, assets.filter(a => vendorOf(a) === v).length])]
+    .map(([k, l, n]) => `<button class="count" data-vendor="${esc(k)}" aria-pressed="${vendor === k}">${esc(l)} <b>${n}</b></button>`).join('');
+  if (box._h !== h) { box.innerHTML = h; box._h = h; }
+}
+// Cards decided in this visit stay in place (so the undo button and progress stay in view) until the filter or page changes.
+const stay = new Set();
+const visible = () => assets.filter(a => inVendor(a) && (filter === 'all' || statusOf(a) === filter || stay.has(a.id)));
+
+function dimsRow(listed, actual) {
+  if (!actual) return '—';
+  const a = actual.map(x => Number(x).toFixed(1)).join(' × ');
+  if (!listed) return `${a} cm`;
+  const ok = listed.every((l, i) => Math.abs(l - actual[i]) <= Math.max(1, l * 0.02));
+  return `<span class="${ok ? 'okdim' : 'offdim'}">${a} cm</span><br><span style="color:var(--muted)">listed ${listed.map(x => Number(x).toFixed(1)).join(' × ')}</span>`;
+}
+function factsHTML(a, v, opts = {}) {
+  const tris = opts.tris ?? v.tris, budget = a.quad_budget * 2, pct = Math.min(100, Math.round(tris / budget * 100));
+  return `<dl>
+      <dt>Triangles</dt><dd><span data-tris>${fmt(tris)}</span> <span style="color:var(--muted)">≈ <span data-quads>${fmt(Math.round(tris / 2))}</span> quads of ${fmt(a.quad_budget)}</span>
+        <div class="meter ${tris > budget ? 'over' : ''}"><i data-meter style="width:${pct}%"></i></div></dd>
+      <dt>Size</dt><dd>${dimsRow(a.dims_listed_cm, v.dims_cm || a.dims_cm)}</dd>
+      <dt>Textures</dt><dd>${esc(opts.textures || v.textures || '')}</dd>
+      <dt>Mesh</dt><dd style="word-break:break-all">1 mesh${v.mesh_uuid ? ' · ' + esc(v.mesh_uuid) : ''}</dd>
+    </dl>
+    ${(opts.flags ?? v.flags ?? []).map(f => `<div class="flag">${esc(f)}</div>`).join('')}
+    ${(opts.info ?? v.info ?? []).map(f => `<div class="info">${esc(f)}</div>`).join('')}`;
+}
+
+function regenText(r = {}) {
+  if (r.service === 'meshy') return `Regenerating on Meshy 7.1 · ${fmt(r.quad_budget)} quads · ${(r.photos || []).length} photo${(r.photos || []).length === 1 ? '' : 's'}`;
+  return `Regenerating on Tripo${r.mode ? ` · ${r.mode}, ${fmt(r.quad_budget)} quads` : ''}${r.new_seed ? ' · new seed' : ' · same seed'}${r.photo ? ` · photo ${r.photo}` : ''}`;
+}
+function resultText(d, a) {
+  if (d.result === 'right') return 'Accepted · ' + stepsLabel(d.steps || {}, 'tripo');
+  if (d.result === 'tripo' || d.result === 'meshy' || d.result === 'prev') return 'Accepted · ' + stepsLabel(d.steps || {}, d.result, a && a.versions ? a : null);
+  if (d.result === 'blender') return 'Accepted · ' + (d.label || 'Blender version');
+  if (d.result === 'pass') return 'Accepted';
+  if (d.result === 'fail') return 'Failed · rebuild' + (d.note ? ' (see note)' : '');
+  return regenText(d.regen || {});
+}
+
+function stepsPanel(a, side, steps, locked) {
+  const title = isCompare(a) ? `Steps on ${sideName(a, side)}` : 'Steps for the saved GLB';
+  return `<div class="steps" data-steps-side="${side}"><h3>${esc(title)}</h3>
+    ${STEP_INFO.filter(x => x.when(baseOf(a, side))).map(x => `<label class="step"><input type="checkbox" data-step="${x.key}" ${steps[x.key] ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+      <span>${x.label} <small>· ${x.note}</small></span></label>`).join('')}
+    <div class="notice">Ticked steps are built into the saved GLB; with none ticked it is the model as shown.</div>
+  </div>`;
+}
+let qaCfg = { accept: 60, low: 50, auto: true, key: false, enabled: true };
+const qcls = n => n >= qaCfg.accept ? 'good' : n >= qaCfg.low ? 'mid' : 'low';
+const VARIANT = { as_generated: 'as generated', smooth: 'auto smooth 30°', dedupe: 'duplicate layers removed', dedupe_smooth: 'duplicates removed + auto smooth 30°' };
+function qaHTML(a, side) {
+  const v = baseOf(a, side), q = v?.qa, j = jobOf(a);
+  const busy = j && j.kind === 'qa' && ['queued', 'running'].includes(j.status);
+  if (!q || !q.glb || !v.glb?.endsWith(q.glb)) {
+    if (!qaCfg.enabled) return '';
+    return `<div class="qa" data-qa-side="${side}"><h3>Gemini QA</h3><div class="qsub">${busy ? 'Scoring now…' : q ? 'The model changed since it was scored.' : 'Not scored yet.'}
+      ${!busy && qaCfg.key ? ' <button class="btn small" data-qa-score>Score with Gemini</button>' : !qaCfg.key ? ' Add GEMINI_API_KEY to .env to score.' : ''}</div></div>`;
+  }
+  const vw = q.views || {}, photo = id => (q.photos || []).find(p => p.id === id);
+  const viewChip = k => vw[k] ? `<span>${k[0].toUpperCase() + k.slice(1)} <b class="${qcls(vw[k].score)}">${vw[k].score}</b>${vw[k].photo ? ` <small>vs ${esc(photo(vw[k].photo)?.file || vw[k].photo)}</small>` : ' <small>no photo</small>'}</span>` : '';
+  const issues = (q.issues || []).slice().sort((x, y) => (x.severity === 'major' ? 0 : 1) - (y.severity === 'major' ? 0 : 1));
+  const others = Object.entries(q.variants || {}).filter(([k]) => k !== q.best).map(([k, x]) => `${VARIANT[k] || k} ${x.score}`).join(' · ');
+  const shots = (q.renders || {})[q.best] || [];
+  return `<div class="qa" data-qa-side="${side}">
+    <h3><span>Gemini QA</span>${busy ? '<span class="qsub">scoring again…</span>' : '<button class="linkbtn" data-qa-score>Score again</button>'}</h3>
+    <div class="qhead"><span class="qs ${qcls(q.score)}" title="0-100 realism">${q.score}</span>
+      <div><div><b>Best: ${esc(VARIANT[q.best] || q.best)}</b>${q.repeats ? ` <small class="qsub">(average of ${q.repeats.join(', ')})</small>` : ''}</div>
+      <div class="qsub">Geometry ${q.geometry ?? '–'} · Texture ${q.texture ?? '–'} · Match ${q.fidelity ?? '–'}${others ? ' · also tried: ' + esc(others) : ''}</div></div></div>
+    <div class="qviews">${viewChip('front')}${viewChip('side')}${viewChip('back')}</div>
+    ${q.reason ? `<div><b>Worst:</b> ${esc(q.reason)}</div>` : ''}
+    ${issues.length ? `<ul>${issues.slice(0, 5).map(i => `<li class="${i.severity}">${i.view ? `<b>${esc(i.view)}</b> ` : ''}${esc(i.what)}</li>`).join('')}</ul>` : ''}
+    <details><summary>Renders Gemini scored${q.summary ? ' · summary' : ''}</summary>
+      ${q.summary ? `<p class="qsub" style="margin:6px 0">${esc(q.summary)}</p>` : ''}
+      <div class="qrenders">${shots.map((u, i) => `<img src="${esc(u)}" alt="Render ${'ABCDEFGHI'[i]}" data-zoom="${esc(u)}" loading="lazy">`).join('')}</div>
+      <div class="qsub">${esc(q.model || '')} · $${(q.usd || 0).toFixed(3)}</div></details>
+  </div>`;
+}
+function qaDecisionHTML(a) {
+  const d = a.qa_decision; if (!d) return '';
+  const who = sideName(a, d.side), v = VARIANT[d.variant] || d.variant;
+  if (d.action === 'qa_stopped') return `<div class="qadec needs_person">QA was stopped, so this card has no score and QA won't accept or retry it. Decide it yourself, or press Score again in the Gemini QA panel.</div>`;
+  const msg = d.action === 'accepted' ? `Accepted automatically by QA: ${who}, ${v}, ${d.score}/100.`
+    : d.action === 'retry' ? `QA scored the best version ${d.score}/100, so it is retrying on ${d.drawn ? (d.service === 'meshy' ? 'Meshy 7.1 with the photo plus Gemini-drawn views' : 'Tripo, multi-view from Gemini-drawn views (only one photo exists)') : d.service === 'meshy' ? 'Meshy 7.1' : 'Tripo with a new seed'}.`
+    : `QA could not get above ${qaCfg.low}: best was ${d.score}/100 (${who}, ${v}) after the retries. A person needs to decide.`;
+  return `<div class="qadec ${d.action}">${esc(msg)}${d.reason ? ` <span class="qsub">${esc(d.reason)}</span>` : ''}</div>`;
+}
+function liveOpts(a, side, steps, t) {
+  const base = baseOf(a, side), who = serviceName(side);
+  const flags = steps.dedupe ? (base.flags || []).filter(f => !/overlapping triangles/i.test(f)) : (base.flags || []);
+  const bits = ['1024 px WebP', 'AO baked', steps.smooth45 ? 'normals: auto smooth 45°' : steps.smooth ? 'normals: auto smooth 30°' : `normals: ${who}`];
+  const info = [...(base.info || []), ...(base.net?.found ? [`Net panel found (about ${fmt(base.net.holes)} holes). Tick “Net panel → opacity” to replace it in the saved GLB.`] : [])];
+  return { tris: t?.liveTris ?? (base.tris - (steps.dedupe ? (base.dedupe_faces || 0) : 0)), textures: bits.join(', '), flags, info };
+}
+function liveTileHTML(a, side, locked) {
+  const steps = stepsOf(a, side), badge = side === 'meshy' ? 'meshy' : side === 'prev' ? 'final' : 'tripo';
+  return `<div class="stage"><span class="badge ${badge}" data-label="${side}">${esc(stepsLabel(steps, side, a))}</span>
+      <div class="loading">Loading model…</div><div class="view" data-side="${side}" tabindex="0" aria-label="3D view. Drag to orbit, scroll to zoom."></div>
+    </div>
+    ${stepsPanel(a, side, steps, locked)}
+    ${qaHTML(a, side)}
+    <div class="facts" data-facts="${side}">${factsHTML(a, baseOf(a, side), liveOpts(a, side, steps))}</div>`;
+}
+
+// Wrong units or dimensions: rebuild every version on the card from its raw download at the new size (no credits).
+function fixSizeHTML(a) {
+  const cm = a.dims_listed_cm || a.dims_cm || [0, 0, 0], lamp = a.category_key === 'lamp';
+  const f = v => Number(v).toFixed(1).replace(/\.0$/, '');
+  return `<form class="fixsize" data-fixform hidden>
+    <div class="fsrow"><label>W <input type="number" step="0.1" min="0" data-fs="0" value="${f(cm[0])}"></label>
+      <label>D <input type="number" step="0.1" min="0" data-fs="1" value="${f(cm[1])}"></label>
+      <label>H <input type="number" step="0.1" min="0" data-fs="2" value="${f(cm[2])}"></label>
+      <label>Units <select data-fsunit><option value="cm" selected>cm</option><option value="in">inches</option></select></label>
+      <label class="chk"><input type="checkbox" data-fskeep ${lamp ? 'checked' : ''}> Keep proportions (size by height only)</label>
+      <button class="btn small submit" type="submit">Rebuild at this size · no credits</button></div>
+    <div class="notice">Shown in cm as listed now. If inches were typed as cm, just switch Units to inches: the numbers stay as they are. Every version on this card is rebuilt from its original download${decisions[a.id] && ACCEPT.has(decisions[a.id].result) ? ', and the accepted final GLB is rewritten with the same choice' : ''}.</div>
+    <div class="err" data-fserr hidden></div></form>`;
+}
+function defaultMeshyPhotos(a) {
+  const ps = a.photos || [], pick = [], has = f => pick.includes(f);
+  const add = re => { const p = ps.find(p => re.test(p.label) && !has(p.file)); if (p && pick.length < MESHY_MAX_PHOTOS) pick.push(p.file); };
+  add(/signature|front/i); if (a.photo && !has(a.photo)) pick.push(a.photo); add(/side/i); add(/back/i);
+  return pick.slice(0, MESHY_MAX_PHOTOS);
+}
+function defaultRegen(a) {
+  // First fail on a Tripo result goes to Meshy; once a Meshy result exists, the next try defaults back to Tripo.
+  const service = hasMeshy(a) ? 'tripo' : 'meshy';
+  return { service, mode: 'P2 (Smart Mesh)', quad_budget: a.quad_budget, photo: a.photo, photos: defaultMeshyPhotos(a), autofix: true, new_seed: hasMeshy(a) };
+}
+function regenHTML(a, d) {
+  const rg = { ...defaultRegen(a), ...(d.regen || {}) }, meshy = rg.service === 'meshy', photos = a.photos || [];
+  const max = MAX_QUADS[meshy ? 'Meshy 7.1' : 'P2 (Smart Mesh)'] || 25000;
+  return `<div class="regen" data-regen ${d.result === 'regenerate' ? '' : 'hidden'}>
+      <div style="flex-basis:100%"><div class="seg" role="group" aria-label="Service" style="display:inline-flex">
+        <button type="button" data-service="meshy" aria-pressed="${meshy}">Meshy 7.1</button><button type="button" data-service="tripo" aria-pressed="${!meshy}">Tripo</button>
+      </div></div>
+      <label for="mode-${esc(a.id)}" data-tripo-only ${meshy ? 'hidden' : ''}>Tripo mode
+        <select id="mode-${esc(a.id)}" data-rmode>${Object.keys(MAX_QUADS).filter(m => m !== 'Meshy 7.1').map(m => `<option ${m === rg.mode ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+      <label for="quads-${esc(a.id)}">Quad budget <span data-maxq>(max ${fmt(max)})</span>
+        <input type="number" id="quads-${esc(a.id)}" data-rquads min="100" max="${max}" step="100" value="${rg.quad_budget}"></label>
+      <label class="chk" data-tripo-only ${meshy ? 'hidden' : ''}><input type="checkbox" id="autofix-${esc(a.id)}" data-rautofix ${rg.autofix !== false ? 'checked' : ''}> Tripo image auto-fix</label>
+      <label class="chk" data-tripo-only ${meshy ? 'hidden' : ''}><input type="checkbox" id="newseed-${esc(a.id)}" data-rnewseed ${rg.new_seed ? 'checked' : ''}> New seed</label>
+      <span class="notice" data-cost></span>
+      ${photos.length ? `<div style="flex-basis:100%"><div class="notice" style="margin-bottom:4px" data-photohint></div><div class="photos" role="group" aria-label="Photos sent for generation">
+        ${photos.map(p => `<button class="photo" type="button" data-photo="${esc(p.file)}" aria-pressed="${meshy ? (rg.photos || []).includes(p.file) : p.file === rg.photo}" title="${esc(p.label)}"><img src="${esc(p.thumb)}" alt="${esc(p.label)}"></button>`).join('')}</div></div>` : ''}
+    </div>`;
+}
+
+// ---------- sizes (2026-10-06): the same product at other sizes, built free from the accepted model ----------
+const BED_SIZES = ['twin', 'full', 'queen', 'king', 'cal_king'];
+const inchTxt = d => d ? d.map(v => Number(v).toFixed(2).replace(/\.?0+$/, '')).join(' × ') + ' in' : '';
+function sizesHTML(a, st) {
+  if (a.size || !a.sizes?.length) return '';
+  const built = a.sizes_built || {}, busy = a.job && a.job.kind === 'sizes' && ['queued', 'running'].includes(a.job.status);
+  const tiles = a.sizes.map(z => {
+    const b = built[z.suffix], own = z.own_design;
+    const stTxt = z.main ? (st === 'accepted' ? 'main size · this card' : 'main size · this card (being reviewed)')
+      : own ? 'own design · has its own card' : b ? `in final_glb · ${fmt(b.tris)} triangles` : st === 'accepted' ? (busy ? 'building…' : 'waiting to be built') : 'built when this card is accepted';
+    const done = z.main ? st === 'accepted' : !!b;
+    return `<div class="sz ${done ? 'done' : ''}"><span class="nm">${esc(z.suffix)}</span><span>${esc(inchTxt(z.dims_in))}${b?.dims_cm ? ` · ${b.dims_cm.map(v => Math.round(v)).join(' × ')} cm` : ''}</span>
+      <span class="st">${busy && !z.main && !own && !b ? '<span class="spin" aria-hidden="true"></span> ' : ''}${esc(stTxt)}</span>
+      <span class="row">UUID <code>${esc(z.main ? a.uuid : z.uuid)}</code> <button class="linkbtn" data-copy="${esc(z.main ? a.uuid : z.uuid)}">Copy</button></span>
+      ${b && !z.main ? `<span class="row"><button class="btn small" data-sizeview="${esc(b.url)}" data-sizelabel="${esc(z.suffix)}">View</button></span>` : ''}</div>`;
+  }).join('');
+  return `<div class="sizesbox"><h4>Sizes <span class="qsub">${a.sizes.length} · approved with the main size, files named ${esc(a.asset_name)}_&lt;size&gt;.glb</span></h4>
+    <div class="sizegrid">${tiles}</div><div class="sizeview" data-sizeviewbox hidden><span class="lbl"></span><div class="loading">Loading…</div><div class="view" tabindex="0" aria-label="3D view of this size"></div></div></div>`;
+}
+function sizeFormRow(a, z = {}) {
+  const ph = (a.photos || []).map(p => p.file);
+  return `<tr><td><input type="radio" name="main-${esc(a.id)}" ${z.main ? 'checked' : ''} aria-label="Size in the photos"></td>
+    <td><input type="text" data-k="suffix" value="${esc(z.suffix || '')}" placeholder="king" aria-label="Size name" ${z.uuid ? 'readonly title="A saved size keeps its name (its UUID is tied to it)"' : ''}></td>
+    ${[0, 1, 2].map(i => `<td><input type="number" step="0.01" min="0" data-k="d${i}" value="${esc(z.dims_in?.[i] ?? '')}" aria-label="${['Width', 'Depth', 'Height'][i]} in inches"></td>`).join('')}
+    <td><input type="checkbox" data-k="own" ${z.own_design ? 'checked' : ''} aria-label="Own design"></td>
+    <td><select data-k="photo" ${z.own_design ? '' : 'hidden'}><option value="">its photo…</option>${ph.map(f => `<option ${f === z.photo ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></td>
+    <td>${z.uuid ? '' : '<button type="button" class="rm" title="Remove" aria-label="Remove this size">×</button>'}</td></tr>`;
+}
+function sizeFormHTML(a) {
+  const listed = mainDims(a);
+  let rows = a.sizes?.length ? a.sizes : (/bed/i.test(a.category_key || '') && !/headboard/i.test(a.category_key || '') ? BED_SIZES.map(s => ({ suffix: s })) : [{ main: true, dims_in: listed }, {}]);
+  return `<form class="fixsize sizeform" data-sizeform hidden>
+    <table><thead><tr><th>In the photos</th><th>Size name</th><th>W (in)</th><th>D (in)</th><th>H (in)</th><th>Own design</th><th>Its photo</th><th></th></tr></thead>
+      <tbody>${rows.map(z => sizeFormRow(a, z)).join('')}</tbody></table>
+    <div class="fsrow"><button type="button" class="btn small" data-addsize>+ Add a size</button>
+      <button class="btn small submit" type="submit">Save sizes</button></div>
+    <div class="notice">The size in the photos is this card's listed size${listed ? ` (${esc(inchTxt(listed))})` : ''}. Other sizes are built from the accepted model in Blender, free, ends kept and the middle stretched${isProc(a) ? ' (the picture is stretched to fit)' : ''}, and saved next to it as ${esc(a.asset_name)}_&lt;size&gt;.glb. Once this card has sizes, its own file is named with its size too. Saved sizes keep their name and UUID. Own design: that size gets its own card from its own photo${isProc(a) ? '' : ' (a Tripo generation, credits)'}.</div>
+    <div class="err" data-szerr hidden></div></form>`;
+}
+const mainDims = a => a.sizes?.find(z => z.main)?.dims_in || (a.dims_listed_cm ? a.dims_listed_cm.map(v => Math.round(v / 2.54 * 100) / 100) : null);
+function syncSizeForm(fm, a) {
+  const listed = mainDims(a);
+  fm.querySelectorAll('tbody tr').forEach(tr => { const main = tr.querySelector('[type=radio]').checked;
+    [0, 1, 2].forEach(i => { const inp = tr.querySelector(`[data-k=d${i}]`); inp.disabled = main; if (main && listed) inp.value = listed[i]; });
+    const own = tr.querySelector('[data-k=own]'); own.disabled = main; if (main) own.checked = false;
+    tr.querySelector('[data-k=photo]').hidden = !own.checked; });
+}
+function cardHTML(a) {
+  const st = statusOf(a), dec = decisions[a.id], locked = !!(dec && !reopened.has(a.id));
+  const d = draft[a.id] || {};
+  const neu = isNew(a), cmp = isCompare(a), legacyTwo = !!(a.versions && a.versions.tripo && a.versions.blender);
+  let pair;
+  if (neu) {
+    const chosen = s => dec?.result === s || (s === 'tripo' && dec?.result === 'right');
+    pair = `<div class="pair ${cmp ? '' : 'single'}">${sidesOf(a).map(s => `<div class="side ${chosen(s) ? 'chosen' : ''}" data-live="${s}">${liveTileHTML(a, s, locked)}</div>`).join('')}</div>`;
+  } else if (isProc(a)) {
+    pair = `<div class="pair single"><div class="side ${dec?.result === 'pass' ? 'chosen' : ''}">
+      <div class="stage"><span class="badge final">${esc(a.source_label || 'Procedural build')}</span><div class="loading">Loading model…</div>
+        <div class="view" data-side="final" tabindex="0" aria-label="3D view. Drag to orbit, scroll to zoom."></div></div>
+      <div class="facts">${factsHTML(a, { tris: a.tris, dims_cm: a.dims_cm, textures: a.textures, mesh_uuid: a.mesh_uuid, flags: a.flags, info: a.info })}</div></div></div>`;
+  } else {
+    const sides = legacyTwo ? ['tripo', 'blender'] : ['final'];
+    const verFor = s => s === 'final' ? { tris: a.tris, dims_cm: a.dims_cm, textures: a.textures, mesh_uuid: a.mesh_uuid, flags: a.flags } : a.versions[s];
+    pair = `<div class="pair ${legacyTwo ? '' : 'single'}">${sides.map(s => `<div class="side">
+      <div class="stage"><span class="badge ${s}">${esc((legacyTwo && a.versions[s].label) || (s === 'tripo' ? 'Tripo version' : s === 'blender' ? 'Blender version' : 'Final'))}</span>
+        <div class="loading">Loading model…</div><div class="view" data-side="${s}" tabindex="0" aria-label="3D view. Drag to orbit, scroll to zoom."></div></div>
+      <div class="facts">${factsHTML(a, verFor(s))}</div></div>`).join('')}</div>`;
+  }
+  const picks = !cmp ? [['tripo', 'Use this version']] : hasMeshy(a) ? [['tripo', 'Use Tripo version'], ['meshy', 'Use Meshy version']]
+    : [['prev', `Use ${a.versions.prev.label || 'earlier version'}`], ['tripo', `Use v${a.version || 2}`]];
+  const decide = locked
+    ? `<div class="done"><span class="pill ${st === 'accepted' ? 'accepted' : 'regen'}">${esc(resultText(dec, a))}</span>
+        ${(neu || isProc(a)) && canReopen(a) ? '<button class="linkbtn" data-reopen>Change decision</button>' : ''}</div>${dec.note ? `<div class="notice">Note: ${esc(dec.note)}</div>` : ''}`
+    : isProc(a) ? `<div class="choice">
+        <button class="btn pick" data-pick="pass" aria-pressed="${d.result === 'pass'}">Pass</button>
+        <button class="btn pick" data-pick="fail" aria-pressed="${d.result === 'fail'}">Fail – rebuild</button>
+        <button class="btn submit" data-submit ${d.result ? '' : 'disabled'}>Submit</button></div>
+      <textarea id="note-${esc(a.id)}" data-note placeholder="What should change? (e.g. deeper frame, wrong crop)">${esc(d.note || '')}</textarea>
+      <div class="err" data-err hidden></div>`
+    : neu ? `<div class="choice">
+        ${picks.map(([k, l]) => `<button class="btn pick" data-pick="${k}" aria-pressed="${d.result === k}">${l}</button>`).join('')}
+        <button class="btn pick" data-pick="regenerate" aria-pressed="${d.result === 'regenerate'}">Fail – regenerate</button>
+        <button class="btn submit" data-submit ${d.result ? '' : 'disabled'}>Submit</button></div>
+      ${regenHTML(a, d)}
+      <textarea id="note-${esc(a.id)}" data-note placeholder="Optional note for the record">${esc(d.note || '')}</textarea>
+      <div class="err" data-err hidden></div>`
+    : `<div class="notice">Reviewed before the current review card.</div>`;
+  const pv = a.versions?.prev;
+  const tags = isProc(a) ? `<span class="tag">${esc(a.mode || 'Procedural')}</span><span class="tag">no credits</span>` : hasMeshy(a) ? `<span class="tag">Tripo ${esc(a.mode)} · ${esc(a.credits)} credits</span><span class="tag">Meshy 7.1 · ${esc(a.versions.meshy.credits ?? MESHY_CREDITS)} credits</span>`
+    : cmp ? `<span class="tag">${esc(pv.label)} · ${esc(pv.mode || 'Tripo')}${pv.credits != null ? ` · ${esc(pv.credits)} credits` : ''}</span><span class="tag">v${esc(a.version)} · ${esc(a.mode)} · ${esc(a.credits)} credits</span>`
+    : `<span class="tag">${esc(a.mode)}</span><span class="tag">${esc(a.credits)} credits</span>`;
+  return `<article class="card ${st === 'accepted' ? 'is-accepted' : st === 'regen' ? 'is-regen' : ''}" data-id="${esc(a.id)}">
+    <div class="chead">
+      <img class="ref" src="${esc(a.ref)}" alt="Reference photo sent for generation" data-zoom="${esc(a.ref)}">
+      <div style="min-width:0">
+        <p class="name">${esc(a.asset_name)}${a.size ? ` · <b>${esc(a.size)}</b> size` : ''}</p>
+        ${a.uuid ? `<div class="uuid">UUID${a.size ? ` (${esc(a.size)})` : ''} <code>${esc(a.uuid)}</code> <button class="linkbtn" data-copy="${esc(a.uuid)}">Copy</button>${st === 'accepted' ? '' : '<span>· goes into the final GLB</span>'}</div>` : ''}
+        <div class="tagrow"><span class="tag vendor">${esc(vendorOf(a))}</span><span class="tag">${esc(a.category)}</span>${tags}${cmp && !hasMeshy(a) ? '' : `<span class="tag">v${esc(a.version || 1)}</span>`}
+          ${a.source_url ? `<a class="src" href="${esc(a.source_url)}" target="_blank" rel="noopener">Living Spaces page</a>` : ''}</div>
+        ${a.notes ? `<div class="notice" style="margin-top:6px">${esc(a.notes)}</div>` : ''}
+        ${hasMeshy(a) ? '<div class="notice" style="margin-top:4px">Failed on Tripo and regenerated on Meshy: both results are shown. Meshy runs have no seed, so they can’t be reproduced exactly.</div>'
+          : cmp ? `<div class="notice" style="margin-top:4px">${esc(pv.label)} was failed and regenerated as v${esc(a.version)}: both are shown. Pick the one to keep; it becomes the final GLB.</div>` : ''}
+      </div>
+      <div class="ctrls">
+        <div class="seg" role="group" aria-label="Display">
+          <button data-mode="shaded" aria-pressed="true">Shaded</button><button data-mode="wire" aria-pressed="false">Wireframe</button><button data-mode="clay" aria-pressed="false">Clay + wire</button>
+        </div>
+        <label class="light">Light <input type="range" min="0.3" max="1.8" step="0.05" value="1.0" data-light aria-label="Light level"></label>
+        <button class="btn small" data-reset>Reset view</button>
+        ${!isProc(a) && a.versions ? '<button class="btn small" data-fixsize aria-expanded="false">Fix size</button>' : ''}
+        ${!a.size && st !== 'discarded' && (a.units || 1) <= 1 ? `<button class="btn small" data-sizes aria-expanded="false">${a.sizes?.length ? 'Sizes…' : 'Add sizes…'}</button>` : ''}
+      </div>
+    </div>
+    ${!isProc(a) && a.versions ? fixSizeHTML(a) : ''}
+    ${!a.size ? sizeFormHTML(a) : ''}
+    ${pair}
+    ${sizesHTML(a, st)}
+    <div class="decide">${st === 'discarded'
+      ? `<div class="qadec needs_person">Discarded${a.discarded_at ? ' on ' + esc(a.discarded_at.slice(0, 10)) : ''}. Nothing was deleted: the files stay in the asset folder on the drive. <button class="btn small" data-restore>Restore</button>
+        <button class="linkbtn" data-delete>Delete…</button>
+        <span data-delete-confirm hidden>Remove it from the app for good? Its files move to <b>assets\\_deleted</b> on the drive (recoverable by hand until that folder is emptied). <button class="btn small fail" data-delete-yes>Delete</button> <button class="linkbtn" data-delete-no>Cancel</button></span></div>`
+      : `${qaDecisionHTML(a)}${decide}<div class="discardrow">${st !== 'accepted' && !isProc(a) ? `<button class="linkbtn" data-discard>Discard this product…</button>
+        <span data-discard-confirm hidden>Take it off the review list and stop anything queued for it (no more credits)? Nothing is deleted. <button class="btn small fail" data-discard-yes>Discard</button> <button class="linkbtn" data-discard-no>Cancel</button></span>` : ''}</div><div class="jobline" data-job>${jobHTML(a)}</div>`}</div>
+  </article>`;
+}
+
+function mountLive(card, a, side) {
+  const g = card._group; card._live = card._live || {};
+  if (card._live[side]) { disposeTile(card._live[side]); delete card._live[side]; }
+  const t = makeTile(g, card.querySelector(`[data-live="${side}"] .view`), baseOf(a, side), true); t.steps = stepsOf(a, side); card._live[side] = t;
+  t.onReady = tt => updateLiveFacts(card, a, side, tt);
+}
+function updateLiveFacts(card, a, side, t) {
+  const steps = stepsOf(a, side), f = card.querySelector(`[data-facts="${side}"]`); if (!f) return;
+  f.innerHTML = factsHTML(a, baseOf(a, side), liveOpts(a, side, steps, t));
+  const lab = card.querySelector(`[data-label="${side}"]`); if (lab) lab.textContent = stepsLabel(steps, side, a);
+}
+
+let renderedKey = '';
+function render() {
+  counts();
+  const list = visible(), pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
+  page = Math.min(page, pages - 1);
+  const slice = list.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+  $('#pager').hidden = list.length <= PER_PAGE; $('#pageinfo').textContent = `${page + 1} / ${pages}`;
+  $('#prev').disabled = page === 0; $('#next').disabled = page >= pages - 1;
+  const key = JSON.stringify([filter, vendor, page, slice.map(a => [a.id, a.version, JSON.stringify(a.versions || {}), decisions[a.id]?.submitted_at, reopened.has(a.id), canReopen(a), a.qa_decision?.at, a.job?.kind === 'qa' && a.job.status, a.uuid, JSON.stringify(a.sizes || []), JSON.stringify(a.sizes_built || {}), a.job?.kind === 'sizes' && a.job.status])]);
+  if (key === renderedKey) return; renderedKey = key;
+  disposeAll();
+  const main = $('#list');
+  if (!slice.length) {
+    main.innerHTML = `<div class="empty"><strong>${assets.length ? 'Nothing here' : 'No assets yet'}</strong>${assets.length ? 'No assets match this filter.' : 'Generated assets appear here as they finish post-processing, 10 per page.'}</div>`;
+    return;
+  }
+  main.innerHTML = slice.map(cardHTML).join('');
+  main.querySelectorAll('.card').forEach(card => {
+    const a = assets.find(x => x.id === card.dataset.id), g = makeGroup(card); card._group = g;
+    if (isNew(a)) {
+      liveSides(a).forEach(s => mountLive(card, a, s));
+      if (card.querySelector('[data-regen]')) syncRegen(card, true);
+    } else card.querySelectorAll('.view').forEach(el => { const s = el.dataset.side; makeTile(g, el, { glb: s === 'final' ? a.glb : a.versions[s].glb }, false); });
+  });
+}
+
+// ---------- interactions ----------
+document.addEventListener('click', async e => {
+  const f = e.target.closest('.count');
+  if (f && f.dataset.vendor) { vendor = f.dataset.vendor; page = 0; stay.clear(); renderedKey = ''; render(); return; }
+  if (f) { filter = f.dataset.filter; page = 0; stay.clear(); document.querySelectorAll('.count[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === f))); render(); return; }
+  if (e.target.id === 'prev') { page--; stay.clear(); render(); scrollTo({ top: 0 }); return; }
+  if (e.target.id === 'next') { page++; stay.clear(); render(); scrollTo({ top: 0 }); return; }
+  const z = e.target.closest('[data-zoom]'); if (z) { $('#zoomimg').src = z.dataset.zoom; $('#zoom').showModal(); return; }
+  if (e.target.closest('#zoom')) { $('#zoom').close(); return; }
+  const card = e.target.closest('.card'); if (!card) return;
+  const id = card.dataset.id, g = card._group, a = assets.find(x => x.id === id);
+  const mb = e.target.closest('[data-mode]');
+  if (mb && g) { g.mode = mb.dataset.mode; card.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b === mb)));
+    g.tiles.forEach(t => t.loaded && applyMode(t, g.mode)); return; }
+  if (e.target.closest('[data-reset]') && g) { g.fit(); return; }
+  const cp = e.target.closest('[data-copy]');
+  if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copy); cp.textContent = 'Copied'; } catch { cp.textContent = 'Select and copy'; } setTimeout(() => { cp.textContent = 'Copy'; }, 1500); return; }
+  const szb = e.target.closest('[data-sizes]');
+  if (szb) { const fm = $('[data-sizeform]', card); fm.hidden = !fm.hidden; szb.setAttribute('aria-expanded', String(!fm.hidden)); if (!fm.hidden) syncSizeForm(fm, a); return; }
+  if (e.target.closest('[data-addsize]')) { const fm = $('[data-sizeform]', card); fm.querySelector('tbody').insertAdjacentHTML('beforeend', sizeFormRow(a)); syncSizeForm(fm, a); return; }
+  const rmz = e.target.closest('[data-sizeform] .rm'); if (rmz) { rmz.closest('tr').remove(); return; }
+  const svw = e.target.closest('[data-sizeview]');
+  if (svw) { const box = $('[data-sizeviewbox]', card), el = box.querySelector('.view');
+    if (card._sizeTile) { disposeTile(card._sizeTile); card._sizeTile = null; }
+    if (box.dataset.url === svw.dataset.sizeview && !box.hidden) { box.hidden = true; return; }
+    box.hidden = false; box.dataset.url = svw.dataset.sizeview; box.querySelector('.lbl').textContent = svw.dataset.sizelabel;
+    if (!box.querySelector('.loading')) box.insertAdjacentHTML('afterbegin', '<div class="loading">Loading…</div>');
+    const g2 = makeGroup(card); g2.mode = g ? g.mode : 'shaded'; g2.exposure = g ? g.exposure : 1; card._sizeTile = makeTile(g2, el, { glb: svw.dataset.sizeview }, false); return; }
+  const fx = e.target.closest('[data-fixsize]');
+  if (fx) { const fm = $('[data-fixform]', card); fm.hidden = !fm.hidden; fx.setAttribute('aria-expanded', String(!fm.hidden)); return; }
+  const sv = e.target.closest('[data-service]');
+  if (sv) {
+    const service = sv.dataset.service, prev = draft[id]?.regen || defaultRegen(a);
+    draft[id] = { ...(draft[id] || {}), regen: { ...prev, service, quad_budget: prev.quad_budget, photos: prev.photos?.length ? prev.photos : defaultMeshyPhotos(a) } };
+    card.querySelectorAll('[data-service]').forEach(b => b.setAttribute('aria-pressed', String(b === sv)));
+    card.querySelectorAll('[data-tripo-only]').forEach(el => { el.hidden = service === 'meshy'; });
+    const r = draft[id].regen;
+    card.querySelectorAll('[data-photo]').forEach(b => b.setAttribute('aria-pressed', String(service === 'meshy' ? r.photos.includes(b.dataset.photo) : b.dataset.photo === (r.photo || a.photo))));
+    syncRegen(card); return;
+  }
+  const ph = e.target.closest('[data-photo]');
+  if (ph) {
+    const meshy = (draft[id]?.regen || defaultRegen(a)).service === 'meshy';
+    if (meshy) {
+      const on = ph.getAttribute('aria-pressed') === 'true', n = card.querySelectorAll('[data-photo][aria-pressed="true"]').length;
+      if (on && n > 1) ph.setAttribute('aria-pressed', 'false');
+      else if (!on && n < MESHY_MAX_PHOTOS) ph.setAttribute('aria-pressed', 'true');
+    } else card.querySelectorAll('[data-photo]').forEach(b => b.setAttribute('aria-pressed', String(b === ph)));
+    syncRegen(card); return;
+  }
+  const pick = e.target.closest('[data-pick]');
+  if (pick) {
+    draft[id] = { ...(draft[id] || {}), result: pick.dataset.pick };
+    card.querySelectorAll('[data-pick]').forEach(b => b.setAttribute('aria-pressed', String(b === pick)));
+    card.querySelectorAll('.side[data-live]').forEach(sd => sd.classList.toggle('picking', sd.dataset.live === pick.dataset.pick));
+    $('[data-submit]', card).disabled = false; $('[data-submit]', card).textContent = 'Submit'; const rg = $('[data-regen]', card); if (rg) rg.hidden = pick.dataset.pick !== 'regenerate';
+    if (pick.dataset.pick === 'regenerate') syncRegen(card);
+    return;
+  }
+  if (e.target.closest('[data-reopen]')) {
+    const dd = decisions[id] || {}; reopened.add(id);
+    const stepsBy = dd.steps && dd.result ? { [dd.result]: dd.steps } : undefined;
+    draft[id] = { result: dd.result, note: dd.note || '', regen: dd.regen, stepsBy };
+    renderedKey = ''; render(); return;
+  }
+  const sub = e.target.closest('[data-submit]');
+  if (sub) {
+    const d = draft[id]; if (!d?.result) return;
+    const err = $('[data-err]', card);
+    if (!db) { err.hidden = false; err.textContent = 'The Asset Auto Generator app isn’t reachable. Is its window still open?'; return; }
+    const rec = { asset: id, asset_name: a.asset_name, version: a.version || 1, result: d.result, note: (d.note || '').slice(0, 1000), submitted_at: new Date().toISOString(), handled: false };
+    if (d.result === 'regenerate') {
+      syncRegen(card); const r = draft[id].regen, max = MAX_QUADS[r.service === 'meshy' ? 'Meshy 7.1' : r.mode] || 10000;
+      if (!(r.quad_budget >= 100 && r.quad_budget <= max)) { err.hidden = false; err.textContent = `Enter a quad budget between 100 and ${fmt(max)}.`; return; }
+      if (r.service === 'meshy' && !(r.photos || []).length) { err.hidden = false; err.textContent = 'Pick at least one photo for Meshy.'; return; }
+      rec.regen = r.service === 'meshy' ? { service: 'meshy', model: 'meshy-7.1', quad_budget: r.quad_budget, photos: r.photos, topology: 'quad', pbr: true }
+        : { service: 'tripo', mode: r.mode, quad_budget: r.quad_budget, autofix: r.autofix, new_seed: r.new_seed, photo: r.photo };
+    } else if (d.result === 'pass' || d.result === 'fail') { if (d.result === 'fail' && !(d.note || '').trim()) { err.hidden = false; err.textContent = 'Add a note saying what should change, so the rebuild knows what to fix.'; return; } }
+    else rec.steps = stepsOf(a, d.result);
+    sub.disabled = true; sub.textContent = 'Saving…';
+    try { const res = await db.doc('decisions/' + id).set(rec); decisions[id] = res?.decision || rec; reopened.delete(id); delete draft[id]; stay.add(id);
+      if (res?.job) jobsLocal[id] = { ...res.job, status: 'queued' }; renderedKey = ''; render(); }
+    catch (x) {
+      sub.disabled = false; sub.textContent = 'Submit'; err.hidden = false;
+      err.textContent = x?.message ? 'Not saved: ' + x.message : 'Couldn’t save the decision. Is the Asset Auto Generator window still open?';
+    }
+  }
+});
+document.addEventListener('submit', async e => {
+  const sf = e.target.closest('[data-sizeform]');
+  if (sf) { e.preventDefault();
+    const card = sf.closest('.card'), id = card.dataset.id, err = $('[data-szerr]', sf), btn = $('button[type=submit]', sf);
+    const sizes = [...sf.querySelectorAll('tbody tr')].map(tr => ({ suffix: tr.querySelector('[data-k=suffix]').value.trim(), main: tr.querySelector('[type=radio]').checked,
+      dims_in: [0, 1, 2].map(i => Number(tr.querySelector(`[data-k=d${i}]`).value)), own_design: tr.querySelector('[data-k=own]').checked,
+      photo: tr.querySelector('[data-k=photo]').value || null })).filter(z => z.suffix || z.main);
+    btn.disabled = true; err.hidden = true;
+    try { const r = await api('POST', `/api/rows/${id}/sizes`, { sizes });
+      const a = assets.find(x => x.id === id); if (a) a.sizes = r.sizes;
+      err.hidden = false; err.className = 'notice'; err.textContent = r.queued ? 'Saved. Building the sizes now (no credits)…' : r.cost ? `Saved. ${r.cost} credits for the sizes with their own design.` : 'Saved. The sizes are built when this card is accepted.';
+      setTimeout(() => { renderedKey = ''; render(); }, 1200); }
+    catch (x) { err.hidden = false; err.className = 'err'; err.textContent = x.message; btn.disabled = false; }
+    return; }
+  const fm = e.target.closest('[data-fixform]'); if (!fm) return; e.preventDefault();
+  const card = fm.closest('.card'), id = card.dataset.id, err = $('[data-fserr]', fm), btn = $('button[type=submit]', fm);
+  const dims = [...fm.querySelectorAll('[data-fs]')].map(i => Number(i.value));
+  if (!dims.every(d => d > 0)) { err.hidden = false; err.textContent = 'Enter width, depth and height.'; return; }
+  btn.disabled = true; btn.textContent = 'Queuing…'; err.hidden = true;
+  try { const r = await api('POST', `/api/rows/${id}/resize`, { dims, unit: $('[data-fsunit]', fm).value, keep_proportions: $('[data-fskeep]', fm).checked });
+    jobsLocal[id] = { ...r.job, status: 'queued' }; fm.hidden = true; btn.disabled = false; btn.textContent = 'Rebuild at this size · no credits'; patchJobs(); }
+  catch (x) { btn.disabled = false; btn.textContent = 'Rebuild at this size · no credits'; err.hidden = false; err.textContent = 'Not queued: ' + x.message; }
+});
+// Meshy treats the first photo as the front, so keep the order photos were picked in (defaults put the front first).
+const keepOrder = (prev = [], pressed) => [...prev.filter(f => pressed.includes(f)), ...pressed.filter(f => !prev.includes(f))];
+// quiet = true only refreshes the panel's text (used right after render, before the reviewer has touched it)
+function syncRegen(card, quiet = false) {
+  const id = card.dataset.id, a = assets.find(x => x.id === id);
+  const cur = { ...defaultRegen(a), ...(draft[id]?.regen || {}) }, meshy = cur.service === 'meshy';
+  const mode = $('[data-rmode]', card).value, max = MAX_QUADS[meshy ? 'Meshy 7.1' : mode] || 10000, qi = $('[data-rquads]', card);
+  qi.max = max; $('[data-maxq]', card).textContent = `(max ${fmt(max)})`;
+  if (Number(qi.value) > max) qi.value = max;
+  const ns = $('[data-rnewseed]', card).checked;
+  const sb = $('[data-submit]', card); if (sb && draft[id]?.result === 'regenerate') sb.textContent = `Submit · ${meshy ? MESHY_CREDITS : TRIPO_COST} credits`;
+  $('[data-cost]', card).textContent = meshy ? `Meshy 7.1 · quad topology · PBR · no seed · ${MESHY_CREDITS} credits.` : `Tripo P2, mesh then a separate texture step. ${ns ? 'New seed' : 'Same seed'}. ${TRIPO_COST} credits.`;
+  const hint = $('[data-photohint]', card); if (hint) hint.textContent = meshy ? `Photos sent to Meshy (up to ${MESHY_MAX_PHOTOS}, any angles; the first is the front)` : 'Photo sent to Tripo';
+  const pressed = [...card.querySelectorAll('[data-photo][aria-pressed="true"]')].map(b => b.dataset.photo);
+  if (quiet) return;
+  draft[id] = { ...(draft[id] || {}), regen: { service: cur.service, mode, quad_budget: Math.round(Number(qi.value)), autofix: $('[data-rautofix]', card).checked, new_seed: ns,
+    photo: meshy ? cur.photo : (pressed[0] || a.photo), photos: meshy ? keepOrder(cur.photos, pressed) : cur.photos } };
+}
+document.addEventListener('input', e => {
+  const card = e.target.closest('.card'); if (!card) return; const id = card.dataset.id;
+  if (e.target.matches('[data-light]')) { if (card._group) card._group.exposure = Number(e.target.value); return; }
+  if (e.target.matches('[data-note]')) { draft[id] = { ...(draft[id] || {}), note: e.target.value }; return; }
+  if (e.target.matches('[data-rmode], [data-rquads], [data-rautofix], [data-rnewseed]')) { syncRegen(card); return; }
+});
+document.addEventListener('change', e => {
+  const sf = e.target.closest('[data-sizeform]');
+  if (sf) { const a = assets.find(x => x.id === sf.closest('.card').dataset.id); if (a) syncSizeForm(sf, a); return; }
+  const card = e.target.closest('.card'); if (!card) return; const id = card.dataset.id, a = assets.find(x => x.id === id);
+  if (e.target.matches('[data-rmode], [data-rautofix], [data-rnewseed]')) { syncRegen(card); return; }
+  if (e.target.matches('[data-step]')) {
+    const side = e.target.closest('[data-steps-side]').dataset.stepsSide;
+    const steps = { ...stepsOf(a, side), [e.target.dataset.step]: e.target.checked };
+    // 30° and 45° are one choice: ticking one unticks the other
+    const other = { smooth: 'smooth45', smooth45: 'smooth' }[e.target.dataset.step];
+    if (other && e.target.checked) { steps[other] = false; const o = e.target.closest('[data-steps-side]').querySelector(`[data-step="${other}"]`); if (o) o.checked = false; }
+    draft[id] = { ...(draft[id] || {}), stepsBy: { ...(draft[id]?.stepsBy || {}), [side]: steps } };
+    const t = card._live?.[side];
+    if (t) { applySteps(t, steps); applyMode(t, card._group.mode); updateLiveFacts(card, a, side, t); }
+    else { const lab = card.querySelector(`[data-label="${side}"]`); if (lab) lab.textContent = stepsLabel(steps, side, a); }
+  }
+});
+
+// ---------- jobs (the app's worker runs them; the card shows where they are) ----------
+const jobsLocal = {};                        // just submitted, before the next poll brings the server's copy
+const jobOf = a => a.job || jobsLocal[a.id] || null;
+const now = () => Date.now() / 1000;
+// A decision can be changed when nothing is queued or running for it (a waiting run is undone with its Undo button).
+function canReopen(a) { const j = jobOf(a); return !j || !['queued', 'running'].includes(j.status); }
+function jobBusy(a) { const j = jobOf(a); return !!j && (j.status === 'running' || (j.status === 'queued' && !(j.kind === 'generate' && j.not_before > now()))); }
+const SVC = { meshy: 'Meshy 7.1', tripo: 'Tripo' };
+function jobHTML(a) {
+  const j = jobOf(a); if (!j || j.status === 'cancelled') return '';
+  const what = j.kind === 'finalize' ? 'Writing the final GLB' : j.kind === 'procedural' ? 'Building' : j.kind === 'resize' ? 'Rebuilding at the new size (no credits)' : j.kind === 'sizes' ? 'Building the other sizes (no credits)' : j.kind === 'qa' ? 'Gemini QA' : `Regenerating on ${SVC[j.service] || 'Tripo'}`;
+  const last = (j.log || []).slice(-1)[0];
+  if (j.status === 'queued' && j.not_before > now()) {
+    return `<div class="job wait"><span>${esc(what)} starts in <b data-count="${j.not_before}"></b> s. No credits are spent until then.</span> <button class="btn small" data-undo>Undo</button></div>`;
+  }
+  if (j.status === 'queued') return `<div class="job"><span class="spin" aria-hidden="true"></span>${esc(what)}: queued, starting shortly.</div>`;
+  if (j.status === 'running') {
+    const t = j.started_at ? Math.max(0, Math.round((Date.now() - Date.parse(j.started_at)) / 1000)) : 0;
+    return `<div class="job"><span class="spin" aria-hidden="true"></span>${esc(what)}: ${esc(j.stage || 'working')}${j.progress != null && j.stage === 'generating' ? ` ${esc(j.progress)}%` : ''} · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}
+      ${last ? `<div class="joblog">${esc(last)}</div>` : ''}</div>`;
+  }
+  if (j.status === 'blocked') return `<div class="job warn">On hold: ${esc(j.error || '')} <button class="btn small" data-retry="${esc(j.id)}">Try again</button></div>`;
+  if (j.status === 'stopped') return j.kind === 'qa' ? '' : `<div class="job warn">${esc(what)} was stopped. Finish it or remove it under In progress.</div>`;
+  if (j.status === 'error') return `<div class="job bad">${esc(what)} failed: ${esc(j.error || '')} <button class="btn small" data-retry="${esc(j.id)}">Try again</button></div>`;
+  if (j.status === 'done' && j.kind === 'finalize') return `<div class="job ok">Saved to final_glb.</div>`;
+  if (j.status === 'done' && j.kind === 'resize') return `<div class="job ok">Rebuilt at the new size.</div>`;
+  if (j.status === 'done' && j.kind === 'sizes') return `<div class="job ok">Sizes saved to final_glb.</div>`;
+  if (j.status === 'done' && j.kind === 'qa') return '';
+  return '';
+}
+function patchJobs() {
+  document.querySelectorAll('.card').forEach(card => { const a = assets.find(x => x.id === card.dataset.id), el = card.querySelector('[data-job]');
+    if (a && el) { const h = jobHTML(a); if (el._h === undefined) el._h = h; if (el._h !== h) { el.innerHTML = h; el._h = h; } } });
+  tickCounts();
+}
+function tickCounts() { document.querySelectorAll('[data-count]').forEach(b => { b.textContent = Math.max(0, Math.ceil(Number(b.dataset.count) - now())); }); }
+setInterval(tickCounts, 500);
+
+// ---------- local app API ----------
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), { code: r.status });
+  return j;
+}
+db = { doc: p => ({ set: rec => api('POST', '/api/' + p, rec) }) };
+
+document.addEventListener('click', async e => {
+  const u = e.target.closest('[data-undo]');
+  if (u) { const id = u.closest('.card').dataset.id; u.disabled = true;
+    try { await api('DELETE', '/api/decisions/' + id); delete decisions[id]; delete jobsLocal[id]; const a = assets.find(x => x.id === id); if (a) delete a.job; renderedKey = ''; render(); }
+    catch (x) { u.textContent = x.message; } return; }
+  const cx = e.target.closest('[data-cancel]');
+  if (cx) { cx.disabled = true; try { await api('POST', `/api/jobs/${cx.dataset.cancel}/cancel`, {}); lastJobs = lastJobs.filter(j => j.id !== cx.dataset.cancel); renderInProgress(); }
+    catch (x) { cx.textContent = x.message; } return; }
+  const sx = e.target.closest('[data-stop]');
+  if (sx) { sx.disabled = true; stopping.add(sx.dataset.stop);
+    try { const r = await api('POST', `/api/jobs/${sx.dataset.stop}/stop`, {}); if (r.stopped) { const j = lastJobs.find(x => x.id === sx.dataset.stop); if (j) { j.status = 'stopped'; j.stopped_stage = 'waiting'; } stopping.delete(sx.dataset.stop); } renderInProgress(); }
+    catch (x) { stopping.delete(sx.dataset.stop); renderInProgress(); const t = document.querySelector(`[data-ipjob="${CSS.escape(sx.dataset.stop)}"] .now`); if (t) t.insertAdjacentHTML('beforeend', `<span class="bad">${esc(x.message)}</span>`); } return; }
+  const rm = e.target.closest('[data-remove]');
+  if (rm) { rm.disabled = true; try { await api('POST', `/api/jobs/${rm.dataset.remove}/remove`, {}); lastJobs = lastJobs.filter(j => j.id !== rm.dataset.remove); renderInProgress(); renderedKey = ''; }
+    catch (x) { rm.textContent = x.message; } return; }
+  const dl = e.target.closest('[data-delete], [data-delete-no]');
+  if (dl) { const c = dl.closest('.card'), ask = dl.matches('[data-delete]');
+    c.querySelector('[data-delete-confirm]').hidden = !ask; c.querySelector('[data-delete]').hidden = ask; return; }
+  const dly = e.target.closest('[data-delete-yes]');
+  if (dly) { const id = dly.closest('.card').dataset.id; dly.disabled = true;
+    try { await api('POST', `/api/rows/${id}/delete`, {}); assets = assets.filter(a => a.id !== id); delete decisions[id]; renderedKey = ''; render(); }
+    catch (x) { dly.textContent = x.message; } return; }
+  const r = e.target.closest('[data-retry]');
+  if (r) { r.disabled = true; try { await api('POST', `/api/jobs/${r.dataset.retry}/retry`, {}); } catch (x) { r.textContent = x.message; } return; }
+  const dz = e.target.closest('[data-discard], [data-discard-no]');
+  if (dz) { const c = dz.closest('.card'), ask = dz.matches('[data-discard]');
+    c.querySelector('[data-discard-confirm]').hidden = !ask; c.querySelector('[data-discard]').hidden = ask; return; }
+  const dy = e.target.closest('[data-discard-yes], [data-restore]');
+  if (dy) { const id = dy.closest('.card').dataset.id, act = dy.matches('[data-restore]') ? 'restore' : 'discard'; dy.disabled = true;
+    try { await api('POST', `/api/rows/${id}/${act}`, {}); const a = assets.find(x => x.id === id); if (a) { a.status = act === 'discard' ? 'discarded' : 'review'; if (act === 'discard') a.discarded_at = new Date().toISOString(); }
+      if (act === 'discard') delete decisions[id]; renderedKey = ''; render(); }
+    catch (x) { dy.textContent = x.message; } return; }
+  const qs = e.target.closest('[data-qa-score]');
+  if (qs) { const id = qs.closest('.card').dataset.id; qs.disabled = true;
+    try { const r = await api('POST', `/api/rows/${id}/qa`, { force: true }); jobsLocal[id] = { id: r.job.id, kind: 'qa', status: 'queued' }; renderedKey = ''; render(); }
+    catch (x) { qs.textContent = x.message; } return; }
+  if (e.target.id === 'qa-all') { e.target.disabled = true; try { const r = await api('POST', '/api/qa/score_all', {}); e.target.textContent = `${r.queued} queued`; } catch (x) { e.target.textContent = x.message; } return; }
+  if (e.target.id === 'pause') { const p = e.target.getAttribute('aria-pressed') !== 'true'; await api('POST', '/api/pause', { paused: p }).catch(() => {}); status(); return; }
+});
+
+let lastSig = '', offline = false;
+async function poll() {
+  try {
+    const [A, D] = await Promise.all([api('GET', '/api/assets'), api('GET', '/api/decisions')]);
+    const docs = A.docs.slice().sort((x, y) => (y.queue || Date.parse(y.created_at || 0) || 0) - (x.queue || Date.parse(x.created_at || 0) || 0)), dec = {}; /* newest first */ D.docs.forEach(d => { const { id, ...v } = d; dec[id] = v; });
+    docs.forEach(a => { if (a.job) delete jobsLocal[a.id]; });
+    const sig = JSON.stringify([docs.map(a => [a.id, a.version, a.versions, a.status, a.qa_decision, jobBusy(a), canReopen(a), a.job?.kind === "qa" && a.job.status, a.uuid, a.sizes, a.sizes_built, a.job?.kind === "sizes" && a.job.status]), dec]);
+    assets = docs; decisions = dec;
+    if (sig !== lastSig) { lastSig = sig; render(); }
+    patchJobs();
+    if (offline) { offline = false; $('#notice').hidden = true; }
+  } catch (x) { offline = true; $('#notice').hidden = false; $('#notice').textContent = 'Can’t reach the Asset Auto Generator app. Is its window still open? Retrying…'; }
+  setTimeout(poll, 2000);
+}
+async function status() {
+  try {
+    const s = await api('GET', '/api/status'), b = s.balances || {};
+    if (s.tripo_cost) TRIPO_COST = s.tripo_cost;
+    if (s.qa) { const was = JSON.stringify(qaCfg); qaCfg = s.qa; if (was !== JSON.stringify(qaCfg)) { renderedKey = ''; render(); } }
+    const run = s.jobs.filter(j => j.status === 'running').length, wait = s.jobs.filter(j => j.status === 'queued').length;
+    const bad = s.jobs.filter(j => j.status === 'error' || j.status === 'blocked').length;
+    $('#status').innerHTML = `<span>Credits today <b>${fmt(s.credits_today)}</b> / ${fmt(s.daily_cap)}</span>
+      <span title="${esc(b.tripo_error || '')}">Tripo <b>${b.tripo != null ? fmt(b.tripo) : '—'}</b>${b.tripo_error ? ' <span class="bad">(can’t read balance: ' + esc(b.tripo_error.slice(0, 80)) + ')</span>' : ''}</span><span title="${esc(b.meshy_error || '')}">Meshy <b>${b.meshy != null ? fmt(b.meshy) : '—'}</b>${b.meshy_error ? ' <span class="bad">(can’t read balance: ' + esc(b.meshy_error.slice(0, 80)) + ')</span>' : ''}</span>
+      <a class="jobs" href="#inprog">${run} running · ${wait} queued${bad ? ` · <b class="bad">${bad} need attention</b>` : ''}</a>
+      ${!s.keys.tripo || !s.keys.meshy ? `<span class="bad">Missing key: ${[!s.keys.tripo && 'TRIPO_API_KEY', !s.keys.meshy && 'MESHY_API_KEY'].filter(Boolean).join(', ')}</span>` : ''}
+      ${!s.blender ? '<span class="bad">Blender not found</span>' : ''}
+      ${s.qa ? `<span class="qachip ${s.qa.auto ? 'on' : ''}" title="Gemini scores every new version">${!s.qa.key ? 'QA off: no GEMINI_API_KEY' : s.qa.auto ? `Auto QA on · accepts ≥ ${s.qa.accept}, retries under it` : 'QA scores only (auto off)'}</span>
+        ${s.qa.key ? '<button class="btn small" id="qa-all">Score unscored cards</button>' : ''}` : ''}
+      <button class="btn small" id="pause" aria-pressed="${s.paused}">${s.paused ? 'Resume worker' : 'Pause worker'}</button>
+      <a class="btn small" href="/intake">Add products</a>`;
+    lastJobs = s.jobs; [...stopping].forEach(id => { if (!lastJobs.some(j => j.id === id && j.status === 'running')) stopping.delete(id); }); renderInProgress();
+  } catch {}
+  setTimeout(status, lastJobs.length ? 3000 : 10000);
+}
+// ---------- "In progress": one small card per job, from the free status checks the worker already makes ----------
+let lastJobs = [];
+const STEPS = { generate: ['Waiting', 'Uploading', 'Mesh + texture', 'Downloading', 'Finishing'], finalize: ['Waiting', 'Final GLB'], procedural: ['Waiting', 'Building'], resize: ['Waiting', 'Rebuilding'], sizes: ['Waiting', 'Building sizes'], qa: ['Waiting', 'Rendering', 'Scoring'] };
+const STAGE_IX = { queued: 0, submitting: 1, generating: 2, texturing: 2, downloading: 3, 'post-processing': 4, building: 1 };
+const STOP_WHERE = { waiting: 'while waiting', submitting: 'before uploading', 'post-processing': 'in Finishing (Blender)', building: 'while building', stopped: '' };
+const stopping = new Set();
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+function ipHTML(j) {
+  const steps = STEPS[j.kind] || ['Waiting', 'Working'];
+  let ix = j.status === 'queued' ? 0 : j.status === 'stopped' ? (STAGE_IX[j.stopped_stage] ?? (j.stopped_stage === 'waiting' ? 0 : 1)) : (STAGE_IX[j.stage] ?? (j.kind === 'finalize' ? 1 : 1));
+  if ((j.kind === 'finalize' || j.kind === 'resize' || j.kind === 'sizes') && j.status === 'running') ix = 1;
+  if (j.kind === 'qa' && j.status === 'running') ix = /^Gemini/.test(j.stage || '') ? 2 : 1;
+  const svc = j.service === 'meshy' ? 'Meshy 7.1' : 'Tripo' + (j.mode_label ? ' ' + j.mode_label : '');
+  const what = j.kind === 'finalize' ? 'Writing the final GLB' : j.kind === 'procedural' ? 'Building in Blender (no credits)' : j.kind === 'resize' ? 'Rebuilding at the new size (no credits)' : j.kind === 'sizes' ? 'Building the other sizes (no credits)'
+    : j.kind === 'qa' ? 'Gemini QA (no credits)'
+    : (j.regen ? 'Regenerating on ' : 'New product · ') + svc + (j.cost ? ` · ${j.cost} credits` : '');
+  let now, cls = '';
+  if (j.status === 'blocked') { cls = 'warn'; now = `On hold: ${esc(j.error || '')} <button class="btn small" data-retry="${esc(j.id)}">Try again</button>`; }
+  else if (j.status === 'error') { cls = 'bad'; now = `Failed: ${esc((j.error || '').slice(0, 220))} <button class="btn small" data-retry="${esc(j.id)}">Try again</button> <button class="linkbtn" data-remove="${esc(j.id)}">Remove</button>`; }
+  else if (j.status === 'stopped') {
+    cls = 'stopped'; const where = STOP_WHERE[j.stopped_stage] || (j.stopped_stage ? `at “${j.stopped_stage}”` : '');
+    const again = j.kind !== 'generate' ? 'Start again (free)' : j.paid ? 'Finish it (free)' : `Start again${j.cost ? ` (${j.cost} credits)` : ''}`;
+    now = `Stopped ${esc(where)}${j.kind === 'generate' && j.paid ? '. The paid model is kept.' : '. No credits were spent.'} <button class="btn small" data-retry="${esc(j.id)}">${esc(again)}</button> <button class="linkbtn" data-remove="${esc(j.id)}" title="${j.regen ? 'The card goes back to how it was before the regeneration' : 'A new product without a card moves to assets\\_deleted'}">Remove</button>`;
+  }
+  else if (stopping.has(j.id)) now = '<span class="spin" aria-hidden="true"></span> Stopping…';
+  else if (j.status === 'queued' && j.not_before > Date.now() / 1000) now = `Starts in <b data-count="${j.not_before}"></b> s · no credits spent yet <button class="btn small" data-cancel="${esc(j.id)}">Cancel</button>`;
+  else if (j.status === 'queued') now = j.queue_ahead ? `Waiting for a free slot (${j.queue_ahead} ahead)` : '<span class="spin" aria-hidden="true"></span> Starting…';
+  else {
+    const t = j.started_at ? Math.max(0, (Date.now() - Date.parse(j.started_at)) / 1000) : 0;
+    now = `<span class="spin" aria-hidden="true"></span> ${esc(j.stage === 'texturing' ? 'Texturing' : j.stage === 'generating' && j.kind === 'generate' ? 'Mesh' : steps[ix] || j.stage || 'Working')}${(j.stage === 'generating' || j.stage === 'texturing') && j.progress != null ? ` <b>${esc(j.progress)}%</b>` : ''}
+      · <b data-since="${esc(j.started_at || '')}">${mmss(t)}</b> <span class="what">(usually about ${Math.round(j.typical_s / 60) || 1} min)</span>`;
+  }
+  const pct = (j.stage === 'generating' || j.stage === 'texturing') && j.progress != null ? Math.max(4, j.stage === 'texturing' ? 50 + Number(j.progress) / 2 : Number(j.progress) / 2) : 35;
+  const canStop = j.stoppable && !stopping.has(j.id) && !(j.status === 'queued' && j.not_before > Date.now() / 1000);
+  const x = canStop ? `<button class="stopx" data-stop="${esc(j.id)}" title="Stop this run${j.kind === 'generate' && !j.paid ? ' (no credits spent yet)' : ''}" aria-label="Stop this run">×</button>` : '';
+  return `<div class="ip ${cls}" data-ipjob="${esc(j.id)}">${x}${j.ref ? `<img src="${esc(j.ref)}" alt="">` : '<span class="noimg"></span>'}
+    <p class="nm">${esc(j.asset)}</p><span class="what">${j.vendor ? `<b>${esc(j.vendor)}</b> · ` : ''}${esc(what)}</span><span class="now">${now}</span>
+    <div class="steps-line">${steps.map((_, i) => `<i class="${i < ix ? 'done' : i === ix && j.status !== 'blocked' && j.status !== 'error' ? 'cur' : ''}" style="--p:${pct}%">${i === ix ? '<u></u>' : ''}</i>`).join('')}</div>
+    <div class="steps-names">${steps.map((n, i) => `<span class="${i === ix ? 'cur' : ''}">${esc(n)}</span>`).join('')}</div></div>`;
+}
+function renderInProgress() {
+  const box = $('#iplist'), list = [...lastJobs].sort((a, b) => a.id.localeCompare(b.id));
+  $('#inprog').hidden = !list.length;
+  const h = list.map(ipHTML).join('');
+  if (box._h !== h) { box.innerHTML = h; box._h = h; tickCounts(); }
+}
+setInterval(() => { document.querySelectorAll('[data-since]').forEach(b => { if (b.dataset.since) b.textContent = mmss(Math.max(0, (Date.now() - Date.parse(b.dataset.since)) / 1000)); }); }, 1000);
+poll(); status();
+
+</script>
+
+</body></html>

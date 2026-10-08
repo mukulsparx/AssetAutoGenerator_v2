@@ -1,0 +1,55 @@
+# Asset Auto Generator (was Tripo3D Auto Generation): settings for this copy of the package.
+# The package folder can live on the shared drive or be copied anywhere; nothing here is tied to one person's PC.
+
+[paths]
+# Shared asset library. The first folder in this list that exists is used. Relative paths are relative to this
+# package folder. Add your own drive letter here if Google Drive for desktop mounts somewhere other than G:.
+assets_dirs = [
+  "../assets",
+  "G:/Shared drives/Connecter Drive/Max Scripts/_Automation tools/Asset Auto Generator/assets",
+  "H:/Shared drives/Connecter Drive/Max Scripts/_Automation tools/Asset Auto Generator/assets",
+  "G:/Shared drives/Connecter Drive/Max Scripts/_Automation tools/Tripo3D auto generation/assets",   # the folder's name before 2026-10-08
+  "H:/Shared drives/Connecter Drive/Max Scripts/_Automation tools/Tripo3D auto generation/assets",
+]
+# Blender 4.2 executable. Leave empty to use the portable copy that Start.bat downloads into
+# %LOCALAPPDATA%\AssetAutoGenerator (one-time, about 370 MB).
+blender = ""
+
+[server]
+host = "127.0.0.1"   # this PC only
+port = 8766
+
+[credits]
+daily_cap = 1500        # stop starting paid runs once this many credits were spent today (all machines together)
+undo_seconds = 30       # a submitted regeneration waits this long before it spends credits, so it can be undone
+tripo_p2 = 100          # Tripo P2 mesh (no texture)
+tripo_texture = 20      # Tripo texture step, "detailed" (measured 2026-10-06: 20 credits)
+tripo_hd = 30           # older cards only
+tripo_smart_mesh = 50   # older cards only
+meshy = 30
+
+[tripo]
+# 2026-10-06 (Mukul): P2 only, and the texture as its own step (like the Tripo website), which gives cleaner textures.
+model = "P2-20260801"
+texture_model = "v3.5-20260815"   # newest Tripo texture model: also removes lighting baked into the photo
+texture_quality = "detailed"      # fast | standard | detailed | extreme
+
+[workers]
+generations = 2         # paid generations running at the same time (Tripo allows 3)
+blender = 1             # Blender post-process jobs at the same time
+claim_stale_minutes = 20
+
+[qa]
+# v2: Gemini scores every new version against the product photos (GEMINI_API_KEY in .env).
+enabled = true
+auto = true             # act on the scores: accept, retry or hold. Off = the cards only show the scores
+model = "gemini-flash-latest"
+accept = 60             # at or above: accepted automatically (best variant's steps). 65 from the calibration (SPEC §22), lowered to 60 by Mukul 2026-10-06
+low = 50                # 50-59: one paid retry, then the best attempt; under 50: up to max_retries, then a person
+max_retries = 2         # paid retries per asset the QA may start (Meshy first, then Tripo with a new seed)
+try_smooth = true       # also score each version with auto smooth 30 and keep the better one
+drawn_views = true      # single-photo products: retries use Gemini-drawn front/side/back views (checked first)
+image_model = "gemini-3.1-flash-image"
+repeats = 2             # the best variant is scored this many more times and averaged (one answer varies by about 8 points)
+render_size = 512
+render_samples = 8
