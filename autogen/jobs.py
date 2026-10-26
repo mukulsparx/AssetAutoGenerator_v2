@@ -2,7 +2,7 @@
 so a restart (or another machine taking over a stale claim) polls that task instead of paying for a new one."""
 import json, os, shutil, time, uuid
 from pathlib import Path
-from . import stopflag, blender, clients, glbinfo, rules as R
+from . import stopflag, blender, clients, glbinfo, vendor_export, rules as R
 from .store import now_iso
 
 
@@ -485,14 +485,13 @@ def finalize(ctx, job, beat):
     old = st.adir(asset) / "final_glb" / f"{asset}.glb"
     if dst != old and old.exists() and not size: old.unlink()       # the product got sizes: the main file now has its suffix
     gi = glbinfo.info(dst)
-    meta = st.meta(asset); exported = None
-    if meta.get("export_dir"):                    # e.g. the vendor's asset folder (Assets\Cort\<asset>\Files)
-        try:
-            ed = Path(meta["export_dir"]); ed.mkdir(parents=True, exist_ok=True)
-            exported = str(ed / dst.name); shutil.copyfile(dst, exported); _log(ctx, job, f"also copied to {exported}")
-        except OSError as e: _log(ctx, job, f"could not copy to {meta['export_dir']}: {e}")
-    row.update(status="approved", approved_at=now_iso(), final_glb=st.rel(asset, dst), final_tris=gi["tris"], exported_to=exported,
-               mesh_uuid=uid, final_dims_cm=gi["dims_cm"])
+    meta = st.meta(asset)
+    # 2026-10-23 (Mukul): the approved model and its 500 x 500 thumbnail go to Assets\<Vendor>\<asset>\ for every vendor
+    # (vendor_export.py). This replaced the per-asset meta "export_dir" copy. A Drive problem is logged, never fatal.
+    job["stage"] = "vendor folder + thumbnail"; st.save_job(job)
+    exp = vendor_export.export(ctx.cfg, st, asset, row, dst, log=lambda m: _log(ctx, job, m))
+    row.update(status="approved", approved_at=now_iso(), final_glb=st.rel(asset, dst), final_tris=gi["tris"],
+               mesh_uuid=uid, final_dims_cm=gi["dims_cm"], **vendor_export.record(row, exp))
     st.save_row(asset, row_id, row)
     dec.update(handled=True, handled_at=now_iso(), outcome=f"copied to final_glb ({gi['tris']:,} triangles)")
     st.save_decision(row_id, dec)
@@ -598,14 +597,9 @@ def build_sizes(ctx, job, beat):
                 if netted.exists(): src = netted
         glbinfo.set_uuid(src, uid, asset)
         dst = st.copy_final(asset, src, final_name(meta, asset, sfx)); gi = glbinfo.info(dst)
-        exported = None
-        if meta.get("export_dir"):
-            try:
-                ed = Path(meta["export_dir"]); ed.mkdir(parents=True, exist_ok=True)
-                exported = str(ed / dst.name); shutil.copyfile(dst, exported)
-            except OSError as e: _log(ctx, job, f"could not copy {dst.name} to {meta['export_dir']}: {e}")
+        exp = vendor_export.export(ctx.cfg, st, asset, row, dst, log=lambda m_: _log(ctx, job, m_))   # each size has its own sheet row, so its own .glb + .jpg
         built[sfx] = {"final": st.rel(asset, dst), "uuid": uid, "dims_in": z["dims_in"], "dims_cm": gi["dims_cm"], "tris": gi["tris"],
-                      "exported_to": exported, "at": now_iso()}
+                      "exported_to": (exp or {}).get("glb"), "export": exp, "at": now_iso()}
         _log(ctx, job, f"{sfx}: {gi['dims_cm']} cm, {gi['tris']:,} triangles -> final_glb/{dst.name}")
         fresh = st.row(row_id, asset); fresh["sizes_built"] = built; st.save_row(asset, row_id, fresh); row = fresh
     fresh = st.row(row_id, asset); fresh["sizes_built"] = built; st.save_row(asset, row_id, fresh)

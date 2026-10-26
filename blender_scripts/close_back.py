@@ -10,8 +10,8 @@ xs = [v.co.x for v in bm.verts]; ys = [v.co.y for v in bm.verts]; zs = [v.co.z f
 x0, x1, y0, y1, z0, z1 = min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
 W, D, H = x1 - x0, y1 - y0, z1 - z0
 uvl = bm.loops.layers.uv.active
-# back faces: normal toward +Y (glTF front = Blender -Y) and near the rear plane
-back = [f for f in bm.faces if f.normal.y > 0.9 and f.calc_center_median().y > y1 - 0.08 * D]
+# back faces: normal toward -Y (the front is glTF -Z = Blender +Y since 2026-10-23, so the back is at -Y) and near the rear plane
+back = [f for f in bm.faces if f.normal.y < -0.9 and f.calc_center_median().y < y0 + 0.08 * D]
 area = {f: f.calc_area() for f in back}
 # texture lookup: pick the back face whose texel is closest to the median back colour (avoids decals / bled highlights)
 img = None
@@ -43,7 +43,7 @@ back_area = sum(area.values())
 zb = max(z0 + 0.03 * H, min(zb, z0 + 0.15 * H))
 t = max(0.012 * D, 0.004 * H)
 px0, px1, pz0, pz1 = x0 + 0.01 * W, x1 - 0.01 * W, zb, z1 - 0.01 * H
-py1 = y1 + 0.001 * D; py0 = py1 - t
+py0 = y0 - 0.001 * D; py1 = py0 + t
 c = [(px0, py0, pz0), (px1, py0, pz0), (px1, py1, pz0), (px0, py1, pz0), (px0, py0, pz1), (px1, py0, pz1), (px1, py1, pz1), (px0, py1, pz1)]
 vs = [bm.verts.new(p) for p in c]
 faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (3, 0, 4, 7)]

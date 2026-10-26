@@ -11,9 +11,32 @@ assets_dirs = [
   "G:/Shared drives/Connecter Drive/Max Scripts/_Automation tools/Tripo3D auto generation/assets",   # the folder's name before 2026-10-08
   "H:/Shared drives/Connecter Drive/Max Scripts/_Automation tools/Tripo3D auto generation/assets",
 ]
+# The vendors' asset library (2026-10-23, Mukul): an approved model's final GLB and its thumbnail go to
+# <root>/<Vendor>/<asset name>/<asset name>_adw.glb + .jpg (autogen/vendor_export.py). The first folder that exists is
+# used; when none does (Drive not running) the finalize job logs it and goes on; `python -m autogen export-vendor` catches up.
+vendors_dirs = [
+  "G:/Shared drives/Connecter Drive/Assets",
+  "H:/Shared drives/Connecter Drive/Assets",
+]
 # Blender 4.2 executable. Leave empty to use the portable copy that Start.bat downloads into
 # %LOCALAPPDATA%\AssetAutoGenerator (one-time, about 370 MB).
 blender = ""
+
+[thumbnail]
+# The 500 x 500 JPEG under 30 KB that goes to models_images/<vendor>_images/ on the CDN and next to the GLB in the
+# vendor folder (autogen/thumbs.py). Made from the product photo (trimmed to the model, padded square with `margin` of
+# the side free on every edge); a Blender render of the GLB on a white background only when no photo can be used.
+size = 500
+max_kb = 30                    # x 1000 bytes, so the file is under 30 KB in either reading
+margin = 0.12
+background = [255, 255, 255]   # pad colour for transparent photos and the render
+bg_tolerance = 18              # how far a pixel may be from the backdrop colour (taken from the corners) and still count as backdrop
+[thumbnail.render]             # blender_scripts/thumb_render.py, used only for the fallback render
+azimuth = 32                   # degrees to the model's right of the front
+elev = 14
+shadow = 0.45                  # 1 = the shadow as rendered, 0 = none; Mukul: "shadows not too dark"
+exposure = -0.35               # keeps a lit white surface under pure white, so white models do not vanish into the backdrop
+samples = 64
 
 [server]
 host = "127.0.0.1"   # this PC only
@@ -53,3 +76,45 @@ image_model = "gemini-3.1-flash-image"
 repeats = 2             # the best variant is scored this many more times and averaged (one answer varies by about 8 points)
 render_size = 512
 render_samples = 8
+
+[sheet]
+# `python -m autogen export-sheet` and the review page's "Sheet CSV" button: the CSV for the asset sheet, one row per
+# approved model (autogen/sheet.py; 2026-10-21, Mukul). Column names are the sheet's and fixed; what follows is configurable.
+# Category names must be ones asset-upserter's STATIC_CATEGORIES knows.
+file_suffix = "_adw"     # prod files are named <asset>_adw.glb; "" to use the tool's own file names
+thumb_base = "https://storage.googleapis.com/sparx-cdn/"   # the Thumbnail column is =IMAGE("<thumb_base><Image Path>")
+thumb_ext = ".jpg"
+refine = true            # pick the finer sheet category from the title: King Bed, Coffee Table, Floor Lamp (100 cm or taller), ...
+
+[sheet.vendor_slugs]     # vendor -> folder under new_models/ and models_images/<slug>_images/ (unlisted vendors: lower-case, _ for spaces)
+"Living Spaces" = "living_spaces"
+"CORT" = "cort"
+"Temple and Webster" = "temple_webster"
+"Raymour & Flanigan" = "raymour_flanigan"
+"Other" = "other"
+
+[sheet.categories]       # rules.toml category key -> sheet category (the base name; `refine` may choose a finer one)
+art = "Artwork"
+rug = "Area Rugs"
+mirror = "Mirror"
+pillow = "Decor"
+office_chair = "Office Chairs"
+outdoor_daybed = "Day Beds"
+lamp = "Table Lamp"
+nightstand = "Nightstand"
+bed = "Beds"
+sectional = "Sectional Sofas"
+loveseat = "Loveseat"
+sofa = "Sofa"
+dining_chair = "Dining Chair"
+accent_chair = "Accent Chair"
+dining_table = "Dining Tables"
+cabinet = "Cabinets"
+small_table = "Side Tables"
+other = "Other"
+
+[sheet.hosts]            # rules.toml category key -> "Host" (where the app lets the model sit); a key that is missing is face-based (the floor)
+art = "wall-based"
+mirror = "wall-based"
+
+[sheet.resizable]        # rules.toml category key -> "Is resizable?"; a key that is missing is FALSE (a real product is the size it is)

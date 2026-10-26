@@ -301,7 +301,7 @@ function makeGroup(card) {
   const g = { card, camera, controls: [], extent: 1, mode: 'shaded', exposure: 1.0, tiles: [] };
   g.fit = () => {
     const vert = THREE.MathUtils.degToRad(camera.fov / 2), horiz = Math.atan(Math.tan(vert) * camera.aspect);
-    camera.position.copy(new THREE.Vector3(1.1, .7, 1.5).normalize().multiplyScalar(g.extent / 2 / Math.sin(Math.min(vert, horiz)) * 1.16));
+    camera.position.copy(new THREE.Vector3(-1.1, .7, -1.5).normalize().multiplyScalar(g.extent / 2 / Math.sin(Math.min(vert, horiz)) * 1.16));
     camera.near = g.extent / 1000; camera.far = g.extent * 100; camera.updateProjectionMatrix();
     g.controls.forEach(c => { c.target.set(0, 0, 0); c.update(); });
   };
@@ -1029,6 +1029,15 @@ async function poll() {
   } catch (x) { offline = true; $('#notice').hidden = false; $('#notice').textContent = 'Can’t reach the Asset Auto Generator app. Is its window still open? Retrying…'; }
   setTimeout(poll, 2000);
 }
+// Latest-model check (autogen/modelcheck.py, runs when the app starts): red when the Tripo / Meshy docs list a newer
+// model than config.toml / rules.toml use, or an API moved; green when everything is current.
+function modelChip(mc) {
+  if (!mc) return '<span class="qachip" title="Reading the Tripo / Meshy docs for newer models…">Models: checking…</span>';
+  if (mc.warnings && mc.warnings.length) return `<span class="bad" title="${esc(mc.warnings.join('\n'))}">Model check: ${esc(mc.warnings[0])}${mc.warnings.length > 1 ? ` (+${mc.warnings.length - 1} more)` : ''}</span>`;
+  if (mc.offline) return '<span class="qachip" title="Could not reach the Tripo / Meshy docs this session; running as configured.">Models: not checked (offline)</span>';
+  const t = mc.tripo || {}, m = mc.meshy || {};
+  return `<span class="qachip on" title="${esc(`Tripo ${t.model} + texture ${t.texture_model} and Meshy ${m.model} are the newest the docs list (checked ${mc.checked_at || ''}). APIs: Tripo ${t.api}, Meshy ${m.api}.`)}">Models current</span>`;
+}
 async function status() {
   try {
     const s = await api('GET', '/api/status'), b = s.balances || {};
@@ -1041,10 +1050,12 @@ async function status() {
       <a class="jobs" href="#inprog">${run} running · ${wait} queued${bad ? ` · <b class="bad">${bad} need attention</b>` : ''}</a>
       ${!s.keys.tripo || !s.keys.meshy ? `<span class="bad">Missing key: ${[!s.keys.tripo && 'TRIPO_API_KEY', !s.keys.meshy && 'MESHY_API_KEY'].filter(Boolean).join(', ')}</span>` : ''}
       ${!s.blender ? '<span class="bad">Blender not found</span>' : ''}
+      ${modelChip(s.model_check)}
       ${s.qa ? `<span class="qachip ${s.qa.auto ? 'on' : ''}" title="Gemini scores every new version">${!s.qa.key ? 'QA off: no GEMINI_API_KEY' : s.qa.auto ? `Auto QA on · accepts ≥ ${s.qa.accept}, retries under it` : 'QA scores only (auto off)'}</span>
         ${s.qa.key ? '<button class="btn small" id="qa-all">Score unscored cards</button>' : ''}` : ''}
       <button class="btn small" id="pause" aria-pressed="${s.paused}">${s.paused ? 'Resume worker' : 'Pause worker'}</button>
-      <a class="btn small" href="/intake">Add products</a>`;
+      <a class="btn small" href="/intake">Add products</a>
+      <a class="btn small" href="/api/export/sheet.csv" title="CSV for the asset sheet: one row per approved model (config.toml [sheet])">Sheet CSV</a>`;
     lastJobs = s.jobs; [...stopping].forEach(id => { if (!lastJobs.some(j => j.id === id && j.status === 'running')) stopping.delete(id); }); renderInProgress();
   } catch {}
   setTimeout(status, lastJobs.length ? 3000 : 10000);

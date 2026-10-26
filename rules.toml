@@ -22,9 +22,15 @@ hard = ["wood", "oak", "walnut", "metal", "iron", "steel", "cane", "rattan", "fr
 # Trailing selling-feature phrases dropped from the title (the physical form, e.g. "with doors", stays).
 stop_phrases = ["with usb ports", "with usb", "with led lights", "with storage drawers", "with charging station",
                 "with power outlets", "with wireless charging"]
+# Longest asset name. The name is in every work path twice (<name>/work/<name>-v1/qa/tripo/<variant>/A.png) and Blender's
+# Python cannot use Windows long paths: a 57-char name already broke the QA render on the shared drive (2026-10-23).
+max_chars = 48
 
 [photos]
 # Living Spaces filenames carry the view: <id>_<colour>_<material>_<type>_<view>_<nn>.jpg
+# Raymour & Flanigan photos are named by rf.py (2026-10-23): the page's main shot is signature_01 (a straight front),
+# the other studio shots detail_NN, lifestyle shots room_NN, the size drawing dimensions_01; never "side", which
+# single_order would prefer and which on Living Spaces means a 3/4 view, not a pure profile.
 views = ["signature", "side", "front", "back", "detail", "feature", "material", "room", "dimensions", "airoom"]
 single_order = ["side", "signature", "front"]     # first match is the single photo sent to Tripo
 never_send = ["dimensions", "room", "airoom", "material"]

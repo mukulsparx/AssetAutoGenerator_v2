@@ -6,7 +6,7 @@ review page shows it, for each variant to be scored (as generated, auto smooth, 
          "variants": [{"id": "as_generated"}, {"id": "smooth", "smooth_deg": 30}, {"id": "dedupe", "mask": "<mask.json>"}]}
 
 Writes <out_dir>/<variant>/<letter>.png and prints one JSON line "QA_RENDER {...}" with the views (letter, azimuth,
-elevation, file) per variant. Azimuth 0 is the model's front (glTF +Z), going round to the model's right first (B = front-right, C = right side…).
+elevation, file) per variant. Azimuth 0 is the model's front (glTF -Z, the app's front), going round to the model's right first (B = front-right, C = right side…).
 Letters are added by the app afterwards. The model is never changed on disk."""
 import bpy, bmesh, sys, math, json, os, mathutils
 
@@ -91,7 +91,7 @@ def setup_scene(meshes):
     # key light like the viewer's directional light at (3, 6, 4) in three.js (y-up) = (3, -4, 6) here
     sun = bpy.data.objects.new("key", bpy.data.lights.new("key", 'SUN')); sc.collection.objects.link(sun)
     sun.data.energy = float(cfg.get("key", 2.5)); sun.data.angle = math.radians(8)
-    sun.rotation_euler = mathutils.Vector((3, -4, 6)).to_track_quat('Z', 'Y').to_euler()
+    sun.rotation_euler = mathutils.Vector((-3, 4, 6)).to_track_quat('Z', 'Y').to_euler()
     cam = bpy.data.objects.new("cam", bpy.data.cameras.new("cam")); sc.collection.objects.link(cam); sc.camera = cam
     cam.data.sensor_fit = 'VERTICAL'; cam.data.angle = math.radians(FOV)
     mn, mx = bounds(meshes); ctr = (mn + mx) / 2; r = (mx - mn).length / 2
@@ -109,8 +109,8 @@ def render_all(sc, cam, ctr, r, sun, vdir):
     dist = r / math.sin(math.radians(FOV / 2)) * 1.08
     for i, (az, el) in enumerate(views()):
         a, e = math.radians(az), math.radians(el)
-        # front = -Y in Blender (glTF +Z); positive azimuth walks round to the model's right (camera moves to -X)
-        d = mathutils.Vector((-math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e)))
+        # front = +Y in Blender (glTF -Z); positive azimuth walks round to the model's right (camera moves to +X)
+        d = mathutils.Vector((math.sin(a) * math.cos(e), math.cos(a) * math.cos(e), math.sin(e)))
         cam.location = ctr + d * dist
         cam.rotation_euler = (ctr - cam.location).to_track_quat('-Z', 'Y').to_euler()
         f = os.path.join(vdir, LETTERS[i] + ".png"); sc.render.filepath = f

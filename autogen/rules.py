@@ -16,7 +16,19 @@ def asset_name(title: str, rules: dict) -> str:
             if t.endswith(" " + ph): t = t[: -len(ph) - 1].rstrip(" ,-"); changed = True
     t = ILLEGAL.sub("", t)
     t = re.sub(r"\s+", "_", t.strip())
-    return re.sub(r"_+", "_", t).strip("_.") or "asset"
+    t = re.sub(r"_+", "_", t).strip("_.") or "asset"
+    # 2026-10-23: the name appears twice in every work path (<name>/work/<name>-v1/qa/tripo/<variant>/A.png). Blender's
+    # bundled Python is not long-path aware, so a long title breaks Windows' 248-char folder / 259-char file limits: the
+    # Linnea office chair (89 chars) failed at the glTF import, Marie's TV stand (57) at the QA render's makedirs. Cut at
+    # a word boundary; naming.max_chars (rules.toml) defaults to 48, which keeps the deepest folder near 230 chars.
+    return _shorten(t, int(rules.get("naming", {}).get("max_chars", 48)))
+
+
+def _shorten(name: str, max_chars: int) -> str:
+    if max_chars <= 0 or len(name) <= max_chars: return name
+    cut = name[:max_chars + 1]
+    if "_" in cut[1:]: cut = cut[: cut.rfind("_")]
+    return cut[:max_chars].rstrip("_-+&.") or name[:max_chars]
 
 
 def _hit(patterns, text): return any(re.search(p, text) for p in patterns or [])

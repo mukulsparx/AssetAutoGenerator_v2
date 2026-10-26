@@ -1,6 +1,14 @@
 """Asset Auto Generator. Usage (Start.bat does this for you):
-   python -m autogen serve      start the review page and the background worker
-   python -m autogen check      show what this machine is missing (Blender, keys, shared folder)
+   python -m autogen serve      start the review page and the background worker (checks the Tripo / Meshy docs for newer models first)
+   python -m autogen check      show what this machine is missing (Blender, keys, shared folder) and whether the models are current
+   python -m autogen export-sheet [--vendor V] [--status approved|review|all] [--out DIR] [--bundle]
+                                CSV for the asset sheet, one row per approved model (--bundle: GLBs + photos in the CDN layout too)
+   python -m autogen batch <folder> [--max N] [--dry-run] [--regenerate]
+                                queue every product in a folder tree (batch.csv for the sizes) for the running app's worker
+   python -m autogen export-vendor [--vendor V] [--asset NAME ...] [--no-thumbnail] [--dry-run]
+                                copy approved models + 500x500 thumbnails into Assets\<Vendor>\<asset>\ (done at approval; this catches up)
+   python -m autogen batch-urls <csv> [--vendor V] [--max N] [--dry-run] [--regenerate] [--delay S]
+                                queue Raymour & Flanigan product pages listed in a CSV (url column): size, price and photos read from each page
 """
 import sys
 from .config import Config
@@ -40,7 +48,24 @@ def main(argv=None):
     if not cfg.key("MESHY_API_KEY"): problems.append("MESHY_API_KEY missing: Meshy regenerations will not run until it is added to .env.")
     if cmd == "check":
         print("assets:", cfg.assets_dir); print("blender:", cfg.blender); print("machine:", cfg.machine)
-        print("\n".join(problems) or "Everything this machine needs is in place."); return 0 if not problems[:2] else 1
+        print("\n".join(problems) or "Everything this machine needs is in place.")
+        from . import modelcheck
+        print(modelcheck.summary(modelcheck.check(cfg, Store(cfg.assets_dir, cfg.machine) if cfg.assets_dir else None)))
+        return 0 if not problems[:2] else 1
+    if cmd in ("export-sheet", "export-vendor", "batch", "batch-urls"):
+        if not cfg.assets_dir: print(problems[0]); return 1
+        store = Store(cfg.assets_dir, cfg.machine, int(cfg.get("workers", "claim_stale_minutes", 20)))
+        if cmd == "export-sheet":
+            from . import sheet
+            return sheet.main(cfg, store, argv[1:])
+        if cmd == "export-vendor":
+            from . import vendor_export
+            return vendor_export.main(cfg, store, argv[1:])
+        if cmd == "batch-urls":
+            from . import rf
+            return rf.main(cfg, store, argv[1:])
+        from . import batch
+        return batch.main(cfg, store, argv[1:])
     if cmd == "serve":
         if not cfg.assets_dir: print(problems[0]); input("Press Enter to close."); return 1
         for p in problems: print("NOTE:", p)
@@ -62,6 +87,10 @@ def main(argv=None):
         except Exception as e: print("NOTE: could not link earlier versions:", e)
         queue_pending_resizes(cfg, store)
         w = Worker(cfg, store).start()
+        # 2026-10-21 (Mukul): every fresh session checks the Tripo / Meshy docs for a newer model or API than config.toml /
+        # rules.toml use (SPEC §29: the tool sat on P1 after P2 shipped). In the background, so the page opens at once.
+        from . import modelcheck
+        modelcheck.start_background(cfg, store)
         serve(cfg, store, w, open_browser="--no-browser" not in argv); return 0
     print(__doc__); return 2
 

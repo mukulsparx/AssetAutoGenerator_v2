@@ -1,5 +1,8 @@
 # Procedural framed art / canvas: an upright box at the listed size, product photo (frame included) on the front.
 # No Tripo credits. Depth rule (2026-09-29): thin frame 2.5 cm, canvas 4 cm.
+# Facing (2026-10-21): the picture faces glTF -Z, like every vendor's wall art (the app turns wall hangings by pi so -Z faces
+# the room: UsingFiber WALL_HANGING_FACING_OFFSET). Until then the front was at glTF +Z and every built painting hung
+# facing the wall; the two Temple and Webster prints were turned by hand on the CDN before this fix.
 # Usage (Blender python via run.py): make_art.py <photo> <out_glb> '<json cfg>'
 # cfg: {"name": str, "dims_in": [W, D, H], "kind": "frame"|"canvas"}
 import bpy, bmesh, sys, json, uuid
@@ -28,13 +31,13 @@ crop = crop.resize((max(1, round(crop.width * scale)), max(1, round(crop.height 
 tex_path = out_glb.replace(".glb", "_front.png"); crop.save(tex_path)
 report["texture_px"] = list(crop.size)
 
-# 2) box: X = width, Z = height, Y = depth; front at -Y (= glTF +Z), back flat against the wall, origin at bottom centre
+# 2) box: X = width, Z = height, Y = depth; front at +Y (= glTF -Z), back flat against the wall at y = 0, origin at bottom centre
 bpy.ops.wm.read_factory_settings(use_empty=True)
 me = bpy.data.meshes.new("art"); obj = bpy.data.objects.new("art", me); bpy.context.scene.collection.objects.link(obj)
 bm = bmesh.new()
-x0, x1, y0, y1, z0, z1 = -W / 2, W / 2, -DEPTH, 0.0, 0.0, H
-P = {"a": (x0, y0, z0), "b": (x1, y0, z0), "c": (x1, y0, z1), "d": (x0, y0, z1),   # front
-     "e": (x0, y1, z0), "f": (x1, y1, z0), "g": (x1, y1, z1), "h": (x0, y1, z1)}   # back
+x0, x1, y0, y1, z0, z1 = -W / 2, W / 2, 0.0, DEPTH, 0.0, H
+P = {"a": (x0, y1, z0), "b": (x1, y1, z0), "c": (x1, y1, z1), "d": (x0, y1, z1),   # front (y = +DEPTH; recalc_face_normals orients the faces)
+     "e": (x0, y0, z0), "f": (x1, y0, z0), "g": (x1, y0, z1), "h": (x0, y0, z1)}   # back (y = 0, against the wall)
 v = {k: bm.verts.new(p) for k, p in P.items()}
 front = bm.faces.new([v["a"], v["b"], v["c"], v["d"]])
 back = bm.faces.new([v["f"], v["e"], v["h"], v["g"]])
@@ -45,7 +48,7 @@ uv = bm.loops.layers.uv.new("UVMap")
 for f in bm.faces:
     for l in f.loops:
         x, z = l.vert.co.x, l.vert.co.z
-        u, w = (x - x0) / W, (z - z0) / H
+        u, w = (x1 - x) / W, (z - z0) / H          # seen from +Y (the room), +X is on the viewer's left: u runs the other way, or the picture mirrors
         if f is back: u, w = 0.004, 0.004                                                # frame colour from the corner
         elif f in sides: u, w = min(max(u, 0.004), 0.996), min(max(w, 0.004), 0.996)    # frame edge pixels wrap the sides
         l[uv].uv = (u, w)
@@ -63,7 +66,7 @@ me.materials.append(mat)
 
 # 4) single mesh, UUID name, asset name in extras
 uid = str(uuid.uuid4()); obj.name = uid; me.name = uid; obj["asset_name"] = cfg["name"]
-report.update({"mesh_uuid": uid, "mesh_count": 1, "dims_cm": [round(W, 1), DEPTH, round(H, 1)],
+report.update({"mesh_uuid": uid, "mesh_count": 1, "dims_cm": [round(W, 1), DEPTH, round(H, 1)], "front": "glTF -Z (wall-art convention)",
                "triangles": sum(len(p.vertices) - 2 for p in me.polygons), "method": "procedural upright box + product photo (no Tripo)"})
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.export_scene.gltf(filepath=out_glb, export_format="GLB", export_image_format="WEBP", export_image_quality=90,

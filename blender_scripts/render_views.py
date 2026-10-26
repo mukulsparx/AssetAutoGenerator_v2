@@ -23,7 +23,7 @@ w=bpy.data.worlds.new("w"); sc.world=w; w.use_nodes=True; w.node_tree.nodes["Bac
 bpy.ops.mesh.primitive_plane_add(size=size*6, location=(ctr.x,mn.y,ctr.z)); floor=bpy.context.object; floor.rotation_euler=(math.radians(90),0,0) if False else (0,0,0)
 # glTF import is Y-up converted to Blender Z-up: vertical is Z
 floor.location=(ctr.x,ctr.y,mn.z); fm=bpy.data.materials.new("floor"); fm.use_nodes=True; fm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value=(0.85,0.84,0.82,1); floor.data.materials.append(fm)
-bpy.ops.object.light_add(type='AREA', location=ctr+mathutils.Vector((-size*0.8,-size*1.0,size*1.4))); L=bpy.context.object; L.data.energy=300*size*size; L.data.size=size; L.rotation_euler=(math.radians(50),0,math.radians(-35))
+bpy.ops.object.light_add(type='AREA', location=ctr+mathutils.Vector((size*0.8,size*1.0,size*1.4))); L=bpy.context.object; L.data.energy=300*size*size; L.data.size=size; L.rotation_euler=(math.radians(50),0,math.radians(145))
 cam_d=bpy.data.cameras.new("c"); cam=bpy.data.objects.new("c",cam_d); sc.collection.objects.link(cam); sc.camera=cam; cam_d.lens=50
 def aim(direction):
     d=mathutils.Vector(direction).normalized(); cam.location=ctr+d*size*1.9
@@ -40,7 +40,7 @@ for o in meshes:
 def setmat(m):
     for o in meshes:
         for i,s in enumerate(o.material_slots): s.material = m if m else orig[o][i]
-for view,dirn in (("angle",(1.0,-1.3,0.75)),("front",(0,-1,0.15))):
+for view,dirn in (("angle",(-1.0,1.3,0.75)),("front",(0,1,0.15))):   # front = Blender +Y = glTF -Z
     for mode in ("shaded","clay_wire") if view=="angle" else ("shaded",):
         setmat(None if mode=="shaded" else clay)
         for c in wires: c.hide_render = (mode=="shaded")

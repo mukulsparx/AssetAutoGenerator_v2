@@ -167,7 +167,7 @@ for pi, net in enumerate(nets):
     pts = np.array([(mw @ verts[vi].co)[:] for f in coreset for vi in polys[f].vertices])
     c = pts.mean(0); _, _, vt = np.linalg.svd(pts - c, full_matrices=False)
     ax_n = vt[2]
-    if ax_n @ np.array([0, -1, 0.0]) < 0: ax_n = -ax_n             # glTF front (+Z) is Blender -Y
+    if ax_n @ np.array([0, 1, 0.0]) < 0: ax_n = -ax_n              # glTF front (-Z) is Blender +Y
     ax_v = up - (up @ ax_n) * ax_n; ax_v /= np.linalg.norm(ax_v)   # texture "up" = chair up
     ax_u = np.cross(ax_v, ax_n)
     P2 = lambda p: np.array([(p - c) @ ax_u, (p - c) @ ax_v])
