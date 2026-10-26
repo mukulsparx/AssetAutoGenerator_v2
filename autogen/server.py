@@ -2,7 +2,7 @@
 import base64, json, mimetypes, re, threading, time, urllib.parse, webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from . import pipeline, rules as R, clients, intake, autoqa
+from . import pipeline, rules as R, clients, intake, autoqa, modelcheck, sheet
 from .config import PKG
 
 WEB = PKG / "web"
@@ -149,7 +149,14 @@ def make_handler(cfg, store, worker):
                         "keys": {"tripo": bool(cfg.key("TRIPO_API_KEY")), "meshy": bool(cfg.key("MESHY_API_KEY")), "gemini": bool(cfg.key("GEMINI_API_KEY"))}, "slots": slots,
                         "blender": bool(cfg.blender), "balances": balances(cfg, force="refresh" in q),
                         "qa": {**autoqa.settings(cfg), "key": bool(cfg.key("GEMINI_API_KEY"))}, "version": 2,
-                        "tripo_cost": pipeline.tripo_cost(cfg, "p2"), "meshy_cost": int(cfg.get("credits", "meshy", 30))})
+                        "tripo_cost": pipeline.tripo_cost(cfg, "p2"), "meshy_cost": int(cfg.get("credits", "meshy", 30)),
+                        "model_check": modelcheck.cached(store)})      # latest-model check: None until the first run finishes
+                if path == "/api/export/sheet.csv":                   # the asset sheet's CSV, see sheet.py
+                    q = urllib.parse.parse_qs(u.query); vendor = (q.get("vendor") or [None])[0]; status = (q.get("status") or ["approved"])[0]
+                    recs = [sheet.record(r, m, cfg) for r, m in sheet.select(store, vendor, status)]
+                    recs.sort(key=lambda r: (r["_slug"], r["Asset Name"]))
+                    return self._send(200, sheet.csv_text(recs).encode("utf-8"), "text/csv; charset=utf-8",
+                                      {"Content-Disposition": f'attachment; filename="{sheet.file_name(vendor, status)}"'})
                 if path == "/api/rules":
                     return self._send(200, {"categories": [{k: c.get(k) for k in ("key", "label", "builder", "mode", "quads", "close_back")} for c in cfg.rules["category"]],
                                             "modes": cfg.rules["modes"]})

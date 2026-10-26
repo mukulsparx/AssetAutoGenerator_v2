@@ -43,6 +43,16 @@ class Config:
         return None
 
     @property
+    def vendors_dir(self) -> Path | None:
+        """The vendors' asset library (Assets/<Vendor>/<asset>/), see [paths] vendors_dirs; None when no listed folder exists."""
+        env = os.environ.get("AUTOGEN_VENDORS_DIR")
+        cands = ([env] if env else []) + list(self.get("paths", "vendors_dirs", []))
+        for c in cands:
+            p = Path(c) if os.path.isabs(c) else (self.pkg / c)
+            if p.is_dir(): return p.resolve()
+        return None
+
+    @property
     def blender(self) -> str | None:
         b = os.environ.get("AUTOGEN_BLENDER") or self.get("paths", "blender") or ""
         if b: return b

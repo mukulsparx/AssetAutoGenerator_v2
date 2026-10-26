@@ -30,7 +30,7 @@ border = np.concatenate([np.asarray(crop)[:4].reshape(-1, 3), np.asarray(crop)[-
 edge_rgb = (border.mean(0) / 255.0).tolist()
 report["texture_px"] = list(crop.size)
 
-# 2) box: X = width, Y = depth (front edge at -Y = glTF +Z), Z up, origin at bottom centre
+# 2) box: X = width, Y = depth (front edge = the photo's bottom edge at +Y = glTF -Z, the app's front; 2026-10-23), Z up, origin at bottom centre
 bpy.ops.wm.read_factory_settings(use_empty=True)
 me = bpy.data.meshes.new("rug"); obj = bpy.data.objects.new("rug", me); bpy.context.scene.collection.objects.link(obj)
 bm = bmesh.new()
@@ -47,7 +47,7 @@ uv = bm.loops.layers.uv.new("UVMap")
 for f in bm.faces:
     for l in f.loops:
         x, y = l.vert.co.x, l.vert.co.y
-        u, w = (x - x0) / W, (y - y0) / D          # top/bottom: photo spans the whole rug
+        u, w = (x1 - x) / W, (y1 - y) / D          # top/bottom: photo spans the whole rug, its bottom edge at +Y (front), seen from the front
         if f in sides: u, w = min(max(u, 0.002), 0.998), min(max(w, 0.002), 0.998)   # sides pick up the nearest edge pixels
         l[uv].uv = (u, w)
 top.material_index = 0

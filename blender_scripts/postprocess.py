@@ -42,14 +42,21 @@ me = obj.data
 def bounds():
     co = np.array([v.co[:] for v in me.vertices]); return co.min(0), co.max(0)
 
-# 1) orientation: Tripo front is +X -> -Y (glTF +Z). Mesh-level (glTF import uses quaternion mode).
+# 1) orientation: the front lands on glTF -Z (Blender +Y). That is the app's front for every placed item (UsingFiber turns
+#    floor items and wall hangings by pi: FLOOR_ITEM_FACING_OFFSET / WALL_HANGING_FACING_OFFSET) and the way every hand-made
+#    vendor GLB is authored. Until 2026-10-23 the turn put the front on glTF +Z and every generated model stood with its
+#    back to the room (Mukul: "the asset needs to face forward - no matter what"; SPEC section 33). Tripo output faces +X;
+#    Meshy output faces glTF +Z (Blender -Y). Mesh-level (glTF import uses quaternion mode). close_back.py, qa_render.py,
+#    render_views.py, net_panel.py, make_rug.py and the review page's preview camera share this convention: change them together.
 if cfg.get("category") == "rug":
-    # Tripo stands a top-down rug up like a panel facing +X: lay it flat (face up), long side along depth
+    # Tripo stands a top-down rug up like a panel facing +X: lay it flat (face up), long side along depth, the photo's
+    # bottom edge (the edge nearest the photographer) at +Y = glTF -Z, the front
     me.transform(mathutils.Matrix.Rotation(math.radians(-90), 4, 'Y'))
     me.transform(mathutils.Matrix.Rotation(math.radians(90), 4, 'Z'))
 elif cfg.get("source", "tripo") == "tripo":
-    me.transform(mathutils.Matrix.Rotation(math.radians(-90), 4, 'Z'))
-# other sources (e.g. "meshy") already face glTF +Z, so no turn is needed
+    me.transform(mathutils.Matrix.Rotation(math.radians(90), 4, 'Z'))            # +X -> +Y
+else:
+    me.transform(mathutils.Matrix.Rotation(math.radians(180), 4, 'Z'))           # Meshy and other sources: -Y -> +Y
 # 1b) lamps: never keep a power cord lying on the floor (rule 2026-09-30). Done before scaling so the cord
 #     doesn't count towards the width/depth. Removes loose floor-hugging pieces outside the base footprint.
 if cfg.get("category") == "lamp" and 'cord' not in SKIP:

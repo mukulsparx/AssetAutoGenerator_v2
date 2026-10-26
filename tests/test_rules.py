@@ -14,9 +14,20 @@ class Rules(unittest.TestCase):
     def test_names(self):
         self.assertEqual(R.asset_name("Westlawn 84\" Blue Bookcase With Doors", RU), "westlawn_84_blue_bookcase_with_doors")
         self.assertEqual(R.asset_name("Deliah King Natural Wood Upholstered Fabric Platform Bed | Adjustable Base Compatible", RU),
-                         "deliah_king_natural_wood_upholstered_fabric_platform_bed")
+                         "deliah_king_natural_wood_upholstered_fabric")      # 56 chars before the 48-char cap (2026-10-23)
         self.assertEqual(R.asset_name("9'x12' Rug-Nube Maze White", RU), "9x12_rug-nube_maze_white")
         self.assertEqual(R.asset_name("Fen Nightstand With USB Ports", RU), "fen_nightstand")
+
+    def test_name_length(self):
+        # 2026-10-23: long titles broke Blender on Windows (MAX_PATH); names are cut at a word boundary, max 48 chars
+        long = "Linnea Walnut Brown + Black Faux Leather Swivel Adjustable Rolling Wood Office Desk Chair"
+        n = R.asset_name(long, RU)
+        self.assertLessEqual(len(n), 48)
+        self.assertEqual(n, "linnea_walnut_brown_+_black_faux_leather_swivel")
+        self.assertEqual(R.asset_name("Marie Black 71\" Modern Faux Stone Top & Wood Base TV Stand", RU),
+                         "marie_black_71_modern_faux_stone_top_&_wood_base")
+        self.assertEqual(R.asset_name("x" * 60, RU), "x" * 48)                          # no word boundary: hard cut
+        self.assertEqual(R.asset_name("Short Name", {**RU, "naming": {"max_chars": 0}}), "short_name")   # 0 = no cap
 
     def test_categories(self):
         self.assertEqual(self.cat("Branson Black Leather Executive Office Chair"), "office_chair")
@@ -34,23 +45,24 @@ class Rules(unittest.TestCase):
     def test_modes_and_budgets(self):
         p = R.plan({"title": "Branson Black Leather Executive Office Chair", "photos": [{"file": "350910_black_leather_executive_office_chair_signature_91623.jpg"},
                    {"file": "350910_black_leather_office_chair_back_82.jpg"}, {"file": "350910_black_leather_office_chair_detail_45.jpg"}], "dims_in": [28, 29.75, 46.75]}, RU)
-        self.assertEqual((p["mode"], p["quad_budget"]), ("hd", 10000))
+        self.assertEqual((p["mode"], p["quad_budget"]), ("p2", 10000))            # SPEC §29: every category runs on P2; hd/smart are kept only as names on old cards
         self.assertEqual(p["photos"]["multi"][0].split("_")[-2], "signature")        # multi-image: front + back
         self.assertEqual(p["photos"]["multi"][2].split("_")[-2], "back")
         bed = R.plan({"title": "Deliah King Natural Wood Upholstered Fabric Platform Bed", "photos": [{"file": "x_bed_side_02.jpg"}, {"file": "x_bed_side_03.jpg"}], "dims_in": [80, 90, 50]}, RU)
-        self.assertEqual(bed["mode"], "smart"); self.assertEqual(bed["photos"]["single"], "x_bed_side_03.jpg")   # bare frame = later side shot
+        self.assertEqual(bed["mode"], "p2"); self.assertEqual(bed["photos"]["single"], "x_bed_side_03.jpg")   # bare frame = later side shot
         self.assertEqual(bed["postprocess"]["bed_size"], "king")
         lamp = R.plan({"title": "86\" Dark Bronze Adjustable Arc Floor Lamp", "photos": [{"file": "a_lamp_signature.jpg"}], "dims_in": [60, 16, 86]}, RU)
-        self.assertEqual((lamp["mode"], lamp["quad_budget"], lamp["postprocess"]["category"]), ("smart", 3000, "lamp"))
+        self.assertEqual((lamp["mode"], lamp["quad_budget"], lamp["postprocess"]["category"]), ("p2", 3000, "lamp"))
         self.assertTrue(lamp["postprocess"]["uniform_scale"])
         sofa = R.plan({"title": "Malaga Grey Outdoor 83\" Sofa", "photos": [{"file": "s_sofa_side_02.jpg"}], "dims_in": [83, 33, 30]}, RU)
-        self.assertEqual((sofa["mode"], sofa["quad_budget"]), ("hd", 12000))
+        self.assertEqual((sofa["mode"], sofa["quad_budget"]), ("p2", 12000))
         cab = R.plan({"title": "Alameda Lateral File With Glass Door Hutch Set Of 3", "photos": [{"file": "b_set_front_02.jpg"}, {"file": "b_set_side_18.jpg"}], "dims_in": [96, 22, 78]},
                      RU, {"units": 3})
         self.assertEqual((cab["quad_budget"], cab["units"], cab["close_back"]), (2500, 3, True))
         self.assertAlmostEqual(cab["postprocess"]["dims_in"][0], 32)
         self.assertEqual(cab["photos"]["single"], "b_set_side_18.jpg")
-        self.assertEqual(R.clamp_quads(12000, "smart", RU), 10000)
+        self.assertEqual(R.clamp_quads(30000, "p2", RU), 25000)                     # P2 caps at its max_quads
+        self.assertEqual(R.clamp_quads(12000, "no-such-mode", RU), 10000)          # unknown mode: the 10k default
 
     def test_dims_and_sets(self):
         self.assertEqual(R.parse_dims('Dimensions 96"W x 22"D x 78"H Weight 1 lbs'), [96, 22, 78])

@@ -1,0 +1,105 @@
+HOW TO GET APPROVED MODELS INTO THE MODELS SHEET (CSV route)
+=============================================================
+Asset Auto Generator v2 - last updated 2026-10-26 (Mukul / Claude)
+
+The tool writes one CSV row per approved model, in the exact 21 columns of the
+Models tab of the Google Sheet. You upload the files to the CDN, then import the
+CSV into the sheet. Nothing here touches the sheet automatically (yet).
+
+
+1. EXPORT THE CSV
+-----------------
+Open a Command Prompt in the tool folder and run:
+
+    cd /d "G:\Shared drives\Connecter Drive\Max Scripts\_Automation tools\Asset Auto Generator\AssetAutoGenerator_v2"
+    %LOCALAPPDATA%\AssetAutoGenerator\blender-4.2.23-windows-x64\4.2\python\bin\python.exe -m autogen export-sheet --vendor "Raymour & Flanigan" --out "C:\Users\%USERNAME%\Desktop\AssetSheet" --bundle
+
+    --vendor   which vendor's models ("Living Spaces", "Raymour & Flanigan", "CORT", ...).
+               Leave it out for every vendor at once.
+    --out      the folder the files go to (default: Desktop\AssetSheet).
+    --bundle   also copies the GLBs and thumbnails in the CDN layout (see step 2).
+    --status   approved (default) | review | all. Only approved rows belong in the sheet.
+
+Or click "Sheet CSV" on the review page (http://127.0.0.1:8766) for the CSV alone.
+
+You get   assets_<vendor>_<date>.csv   with these columns, in this order:
+
+    Thumbnail | File name | Is resizable? | UUID | Category | Host | Width (cm) |
+    Depth (cm) | Height (cm) | 3D Model path | URL | Display Name | Asset Name |
+    SKU | Price | Currency | Asset Family | Asset Set | Image Path |
+    affiliation_link | style
+
+    - File name has NO ".glb" (the sheet's rows never do).  Example: solara_sofa_adw
+    - UUID comes from the asset's meta.json (every asset gets one).
+    - Host is face-based (stands on the floor) or wall-based (art, mirrors).
+    - Thumbnail is a formula  =IMAGE("https://storage.googleapis.com/sparx-cdn/<Image Path>")
+      that shows the picture once the JPG is on the CDN.
+    - Asset Family, Asset Set, affiliation_link, style are left blank on purpose.
+
+Only the newest approved version of each product (and each of its sizes) is
+exported. Rows still in review, on hold, failed or discarded are never in it.
+
+
+2. UPLOAD THE FILES TO THE CDN FIRST
+------------------------------------
+With --bundle the export folder contains the files in the CDN's own layout:
+
+    new_models/<vendor slug>/glb/<File name>.glb        -> bucket sparx-secured-cdn
+    models_images/<vendor slug>_images/<File name>.jpg  -> bucket sparx-cdn
+
+    vendor slugs: living_spaces, raymour_flanigan, cort, temple_webster
+    (config.toml [sheet.vendor_slugs]; an unlisted vendor is lower-cased with _ )
+
+Drag the two folders into the buckets as they are. The CSV's "3D Model path" and
+"Image Path" cells already point at these locations, so the names must not be
+changed. Upload before importing the CSV, otherwise the Thumbnail cells show a
+broken image until the sheet re-fetches (about an hour).
+
+
+3. IMPORT THE CSV INTO THE MODELS SHEET
+---------------------------------------
+ONE-TIME SETUP (do this once per sheet, it stays):
+    The Thumbnail column must not be formatted as Plain text, or imported
+    formulas arrive as text and no picture shows. Click the Thumbnail column
+    letter to select the whole column, then  Format > Number > Automatic.
+
+Every import:
+    1. Open the Models tab. Click any cell in the LAST row, so you can see
+       where the data ends.
+    2. File > Import > Upload > pick the CSV.
+    3. Import location:  "Append to current sheet"      (never "Replace")
+       Separator type:   Comma
+       Tick "Convert text to numbers, dates and formulas".
+    4. Import data. The rows land under the existing ones. Nothing above them
+       is touched; "Append" cannot overwrite.
+    5. The CSV's header line is appended as a data row too. Find it (it reads
+       "Thumbnail, File name, ...") and delete that one row.
+    6. Check: the new rows have a UUID, a File name without .glb, a Category and
+       a Host, and the Thumbnail cells show pictures. Enlarge the row height
+       (right-click row numbers > Resize rows > 100) if the pictures look like
+       thin strips.
+
+If a Thumbnail cell shows the formula text instead of a picture:
+    the one-time setup above was skipped. Do it, clear those cells, and paste
+    the formulas again: the CSV's Thumbnail column, one per line, pasted from
+    Notepad into the first new row's Thumbnail cell fills the whole column.
+
+
+4. DO NOT
+---------
+- Do not import with "Replace current sheet" or "Replace data at selected cell".
+- Do not import a "review" or "all" export; their file names say so
+  (assets_<vendor>_review_<date>.csv).
+- Do not rename files after export; the sheet's paths must equal the CDN names.
+- Do not import the same CSV twice; the UUID column shows duplicates
+  (Data > Data cleanup > Remove duplicates on the UUID column finds them).
+
+
+5. WHERE THINGS ARE
+-------------------
+- Final GLB + thumbnail per asset:  G:\Shared drives\Connecter Drive\Assets\<Vendor>\<asset>\<asset>_adw.{glb,jpg}
+  (written at approval; "python -m autogen export-vendor --vendor V" re-makes them)
+- Column rules and vendor slugs:    config.toml, section [sheet]
+- The exporter's code and tests:    autogen/sheet.py, tests/test_sheet.py
+- Worked examples:                  Desktop\LivingSpaces_autogen_2026-10-23\README.md
+                                    Desktop\RaymourFlanigan_autogen_2026-10-23\README.md
