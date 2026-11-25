@@ -2,7 +2,7 @@
 import base64, json, mimetypes, re, threading, time, urllib.parse, webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from . import pipeline, rules as R, clients, intake, autoqa, modelcheck, sheet
+from . import pipeline, rules as R, clients, intake, autoqa, modelcheck, sheet, links
 from .config import PKG
 
 WEB = PKG / "web"
@@ -14,7 +14,7 @@ def _prefix(asset, p):
     return f"/files/{urllib.parse.quote(asset)}/{urllib.parse.quote(p)}"
 
 
-from .store import vendor_of
+from .store import vendor_of, Store
 
 
 def row_for_page(r, job, vendor=None, meta=None):
@@ -51,7 +51,8 @@ def job_summary(j):
             "service": sp.get("service"), "asset": a, "mode_label": sp.get("mode_label"), "regen": bool(sp.get("supersedes")),
             "cost": sp.get("cost"), "typical_s": TYPICAL_S.get(j.get("kind"), 120), "vendor": j.get("_vendor"),
             "ref": _prefix(a, f"source_images/{sp.get('ref_photo') or sp.get('photo')}") if (sp.get("ref_photo") or sp.get("photo")) else None,
-            "stoppable": pipeline.stoppable(j), "stopped_stage": j.get("stopped_stage"), "paid": bool(j.get("task_id"))}
+            "stoppable": pipeline.stoppable(j), "stopped_stage": j.get("stopped_stage"), "paid": bool(j.get("task_id")),
+            "owner": Store.owner(j)}                                   # the PC that runs it (see Store.owner)
 
 
 def balances(cfg, force=False):
@@ -106,6 +107,12 @@ def make_handler(cfg, store, worker):
                 if path in ("/intake", "/intake.html"):
                     html = (WEB / "intake.html").read_text(encoding="utf-8").replace("__BOOKMARKLET_JSON__", json.dumps(intake.BOOKMARKLET))
                     return self._send(200, html.encode(), "text/html; charset=utf-8")
+                if path in ("/links", "/links.html"): return self._send(200, (WEB / "links.html").read_bytes(), "text/html; charset=utf-8")
+                if path == "/api/links/run":           # a send's progress (links.py)
+                    r = links.run_state((urllib.parse.parse_qs(u.query).get("id") or [""])[0])
+                    return self._send(200, r) if r else self._send(404, {"error": "no such send"})
+                if path == "/api/links/folder":
+                    return self._send(200, {"folder": links.default_folder((urllib.parse.parse_qs(u.query).get("vendor") or [""])[0])})
                 if path.startswith("/web/"): return self._file(WEB / path[5:], WEB)
                 if path == "/api/localimg":          # a photo in a reference folder on this PC (images only)
                     p = Path(urllib.parse.parse_qs(u.query).get("path", [""])[0])
@@ -141,11 +148,13 @@ def make_handler(cfg, store, worker):
                         act.append(x)
                     # place in line for paid runs that are due but waiting for a free generation slot
                     due = [x for x in act if x["status"] == "queued" and x["kind"] == "generate" and (x["not_before"] or 0) <= time.time()]
-                    for i, x in enumerate(sorted(due, key=lambda x: x["id"])): x["queue_ahead"] = i
+                    for o in {x["owner"] for x in due}:                # each PC runs its own jobs in its own slots
+                        for i, x in enumerate(sorted((x for x in due if x["owner"] == o), key=lambda x: x["id"])): x["queue_ahead"] = i
                     slots = int(cfg.get("workers", "generations", 2))
                     return self._send(200, {"machine": store.machine, "assets_dir": str(store.root), "credits_today": store.credits_today(),
                         "daily_cap": cfg.get("credits", "daily_cap"), "undo_seconds": cfg.get("credits", "undo_seconds"),
                         "costs": cfg.data.get("credits", {}), "paused": worker.paused, "jobs": act,
+                        "machines": store.machines(), "open_s": store.OPEN_S,
                         "keys": {"tripo": bool(cfg.key("TRIPO_API_KEY")), "meshy": bool(cfg.key("MESHY_API_KEY")), "gemini": bool(cfg.key("GEMINI_API_KEY"))}, "slots": slots,
                         "blender": bool(cfg.blender), "balances": balances(cfg, force="refresh" in q),
                         "qa": {**autoqa.settings(cfg), "key": bool(cfg.key("GEMINI_API_KEY"))}, "version": 2,
@@ -181,7 +190,7 @@ def make_handler(cfg, store, worker):
                 m = re.fullmatch(r"/api/jobs/(.+)/remove", path)
                 if m: return self._send(200, pipeline.remove_stopped(store, m.group(1)))
                 m = re.fullmatch(r"/api/rows/(.+)/(discard|restore)", path)
-                if m: return self._send(200, (pipeline.discard_row if m.group(2) == "discard" else pipeline.restore_row)(store, m.group(1)))
+                if m: return self._send(200, pipeline.discard_row(store, m.group(1), cfg) if m.group(2) == "discard" else pipeline.restore_row(store, m.group(1)))
                 m = re.fullmatch(r"/api/rows/(.+)/qa", path)
                 if m:
                     row = store.row(m.group(1))
@@ -198,6 +207,8 @@ def make_handler(cfg, store, worker):
                     return self._send(200, {"queued": n})
                 m = re.fullmatch(r"/api/jobs/(.+)/retry", path)
                 if m: return self._send(200, {"ok": worker.retry(m.group(1))})
+                m = re.fullmatch(r"/api/jobs/(.+)/take", path)
+                if m: return self._send(200, worker.take(m.group(1)))
                 m = re.fullmatch(r"/api/jobs/(.+)/cancel", path)
                 if m:
                     ok = pipeline.cancel_job(store, m.group(1))
@@ -222,6 +233,17 @@ def make_handler(cfg, store, worker):
                     res = pipeline.add_product(cfg, store, body["product"], ov, imgs)
                     res["download_failed"] = failed
                     return self._send(200, res)
+                if path == "/api/links/extract":         # pasted text or a .txt file -> its product links and a vendor guess
+                    urls = links.extract_urls(body.get("text") or "")
+                    names = [links.vendor_for(x) for x in urls]
+                    return self._send(200, {"urls": urls, "vendor": max(set(names), key=names.count) if names else "",
+                                            "sites": {s: [links.site(x) for x in urls].count(s) for s in dict.fromkeys(links.site(x) for x in urls)}})
+                if path == "/api/links/load":            # one link's card; again after an edit (the page is cached)
+                    return self._send(200, links.load(cfg, store, body["url"], (body.get("vendor") or "").strip() or links.vendor_for(body["url"]),
+                                                      body.get("row") or {}, bool(body.get("fresh"))))
+                if path == "/api/links/send":
+                    return self._send(200, links.start(cfg, store, body.get("items") or [], body.get("vendor") or "", body.get("folder") or "",
+                                                       bool(body.get("regenerate"))))
                 return self._send(404, {"error": "not found"})
             except (ValueError, KeyError) as e: return self._send(400, {"error": str(e)[:500]})
             except Exception as e: return self._send(500, {"error": str(e)[:500]})

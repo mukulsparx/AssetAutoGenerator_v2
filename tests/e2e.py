@@ -8,8 +8,10 @@ PKG = Path(__file__).resolve().parent.parent
 FIX, BLENDER = Path(sys.argv[1]), sys.argv[2]
 PY = sys.executable
 tmp = Path(tempfile.mkdtemp(prefix="autogen_e2e_")); assets = tmp / "assets"; assets.mkdir()
+vendors = tmp / "vendors"; vendors.mkdir()      # approval copies here, never into the real Assets\<Vendor>\ on the drive
 (tmp / "cfg.toml").write_text('[credits]\nundo_seconds = 4\ndaily_cap = 500\n[server]\nport = 8799\n')
 env = {**os.environ, "AUTOGEN_ASSETS_DIR": str(assets), "AUTOGEN_BLENDER": BLENDER, "AUTOGEN_CONFIG": str(tmp / "cfg.toml"),
+       "AUTOGEN_VENDORS_DIR": str(vendors), "GEMINI_API_KEY": "",
        "LOCALAPPDATA": str(tmp / "local"), "TRIPO_API_KEY": "test", "MESHY_API_KEY": "test",
        "AUTOGEN_TRIPO_API": "http://127.0.0.1:9911/tripo", "AUTOGEN_MESHY_API": "http://127.0.0.1:9911/meshy", "PYTHONDONTWRITEBYTECODE": "1"}
 mock = subprocess.Popen([PY, str(PKG / "tests" / "mock_apis.py"), "9911", str(FIX / "tripo_raw.glb"), str(FIX / "meshy_raw.glb")])
@@ -91,8 +93,11 @@ try:
     wait_job(lambda rows: any(d["id"] == "alameda_test-v3" and d.get("handled") for d in api("GET", "/api/decisions")["docs"]), "finalize earlier version")
     fin = assets / "Living Spaces" / "alameda_test" / "final_glb" / "alameda_test.glb"
     prev_glb = assets / "Living Spaces" / "alameda_test" / r3["versions"]["prev"]["glb"].split("/files/alameda_test/", 1)[1]
-    assert fin.stat().st_mtime > before and fin.read_bytes() == prev_glb.read_bytes(), "final_glb is not the earlier version"
-    ok.append("Use v2 -> final_glb is the earlier version, unchanged")
+    sys.path.insert(0, str(PKG)); from autogen import glbinfo
+    gf, gp = glbinfo.info(fin), glbinfo.info(prev_glb)       # the final is the same model in metres (glbinfo.to_metres)
+    assert fin.stat().st_mtime > before and gf["units"] == "m" and gp["units"] == "cm" \
+        and (gf["tris"], gf["dims_cm"], gf["mesh_uuid"]) == (gp["tris"], gp["dims_cm"], gp["mesh_uuid"]), "final_glb is not the earlier version"
+    ok.append("Use v2 -> final_glb is the earlier version, in metres")
     # --- fix size on an accepted card (free): every version rebuilt, final GLB rewritten with the same choice
     before = fin.stat().st_mtime
     rz = api("POST", "/api/rows/alameda_test-v3/resize", {"dims": [90, 22, 78], "unit": "in", "keep_proportions": False}); assert rz.get("job"), rz

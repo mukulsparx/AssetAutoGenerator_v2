@@ -71,6 +71,7 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-
 .chead { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 @media (max-width: 760px) { .chead { grid-template-columns: 56px minmax(0, 1fr); } .chead .ctrls { grid-column: 1 / -1; justify-content: flex-start; } }
 .ref { width: 72px; aspect-ratio: 1; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: zoom-in; max-width: 100%; }
+.refcol { display: grid; gap: 4px; justify-items: center; min-width: 0; } .gen { font-size: 11px; line-height: 1.3; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
 .name { font: 500 13px var(--f-data); word-break: break-all; margin: 0; }
 .tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
 .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
@@ -658,6 +659,14 @@ function syncSizeForm(fm, a) {
     const own = tr.querySelector('[data-k=own]'); own.disabled = main; if (main) own.checked = false;
     tr.querySelector('[data-k=photo]').hidden = !own.checked; });
 }
+// when this card's version was generated: the row is written the moment the generate / procedural job finishes
+// (created_at); rows older than that field still have queue, the same moment in ms
+function genDateHTML(a) {
+  const t = a.created_at ? Date.parse(a.created_at) : a.queue, d = t ? new Date(t) : null;
+  if (!d || isNaN(d)) return '';
+  const tip = `Generated ${d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}${a.created_by ? ' on ' + a.created_by : ''}`;
+  return `<time class="gen" datetime="${esc(d.toISOString())}" title="${esc(tip)}">${esc(d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }))}</time>`;
+}
 function cardHTML(a) {
   const st = statusOf(a), dec = decisions[a.id], locked = !!(dec && !reopened.has(a.id));
   const d = draft[a.id] || {};
@@ -704,12 +713,12 @@ function cardHTML(a) {
     : `<span class="tag">${esc(a.mode)}</span><span class="tag">${esc(a.credits)} credits</span>`;
   return `<article class="card ${st === 'accepted' ? 'is-accepted' : st === 'regen' ? 'is-regen' : ''}" data-id="${esc(a.id)}">
     <div class="chead">
-      <img class="ref" src="${esc(a.ref)}" alt="Reference photo sent for generation" data-zoom="${esc(a.ref)}">
+      <div class="refcol"><img class="ref" src="${esc(a.ref)}" alt="Reference photo sent for generation" data-zoom="${esc(a.ref)}">${genDateHTML(a)}</div>
       <div style="min-width:0">
         <p class="name">${esc(a.asset_name)}${a.size ? ` · <b>${esc(a.size)}</b> size` : ''}</p>
         ${a.uuid ? `<div class="uuid">UUID${a.size ? ` (${esc(a.size)})` : ''} <code>${esc(a.uuid)}</code> <button class="linkbtn" data-copy="${esc(a.uuid)}">Copy</button>${st === 'accepted' ? '' : '<span>· goes into the final GLB</span>'}</div>` : ''}
         <div class="tagrow"><span class="tag vendor">${esc(vendorOf(a))}</span><span class="tag">${esc(a.category)}</span>${tags}${cmp && !hasMeshy(a) ? '' : `<span class="tag">v${esc(a.version || 1)}</span>`}
-          ${a.source_url ? `<a class="src" href="${esc(a.source_url)}" target="_blank" rel="noopener">Living Spaces page</a>` : ''}</div>
+          ${a.source_url ? `<a class="src" href="${esc(a.source_url)}" target="_blank" rel="noopener">${esc(vendorOf(a))} page</a>` : ''}</div>
         ${a.notes ? `<div class="notice" style="margin-top:6px">${esc(a.notes)}</div>` : ''}
         ${hasMeshy(a) ? '<div class="notice" style="margin-top:4px">Failed on Tripo and regenerated on Meshy: both results are shown. Meshy runs have no seed, so they can’t be reproduced exactly.</div>'
           : cmp ? `<div class="notice" style="margin-top:4px">${esc(pv.label)} was failed and regenerated as v${esc(a.version)}: both are shown. Pick the one to keep; it becomes the final GLB.</div>` : ''}
@@ -997,6 +1006,12 @@ document.addEventListener('click', async e => {
   if (dly) { const id = dly.closest('.card').dataset.id; dly.disabled = true;
     try { await api('POST', `/api/rows/${id}/delete`, {}); assets = assets.filter(a => a.id !== id); delete decisions[id]; renderedKey = ''; render(); }
     catch (x) { dly.textContent = x.message; } return; }
+  const tk = e.target.closest('[data-take]');
+  if (tk) { const id = tk.dataset.take, pc = pcName((lastJobs.find(x => x.id === id) || {}).owner);
+    if (!confirm(`Run this here instead of on ${pc}?\n\nOnly when ${pc}'s review page is closed: if ${pc} runs it as well, Tripo is paid twice.`)) return;
+    tk.disabled = true;
+    try { await api('POST', `/api/jobs/${id}/take`, {}); const j = lastJobs.find(x => x.id === id); if (j) j.owner = myPC; renderInProgress(); }
+    catch (x) { tk.disabled = false; alert(x.message); } return; }           /* the tile re-renders every 3 s */
   const r = e.target.closest('[data-retry]');
   if (r) { r.disabled = true; try { await api('POST', `/api/jobs/${r.dataset.retry}/retry`, {}); } catch (x) { r.textContent = x.message; } return; }
   const dz = e.target.closest('[data-discard], [data-discard-no]');
@@ -1055,7 +1070,9 @@ async function status() {
         ${s.qa.key ? '<button class="btn small" id="qa-all">Score unscored cards</button>' : ''}` : ''}
       <button class="btn small" id="pause" aria-pressed="${s.paused}">${s.paused ? 'Resume worker' : 'Pause worker'}</button>
       <a class="btn small" href="/intake">Add products</a>
+      <a class="btn small" href="/links" title="Paste a vendor's product links or open a .txt of them, review each one, send them as tasks">Add links</a>
       <a class="btn small" href="/api/export/sheet.csv" title="CSV for the asset sheet: one row per approved model (config.toml [sheet])">Sheet CSV</a>`;
+    myPC = s.machine; machines = s.machines || {}; openS = s.open_s || 180;
     lastJobs = s.jobs; [...stopping].forEach(id => { if (!lastJobs.some(j => j.id === id && j.status === 'running')) stopping.delete(id); }); renderInProgress();
   } catch {}
   setTimeout(status, lastJobs.length ? 3000 : 10000);
@@ -1067,6 +1084,17 @@ const STAGE_IX = { queued: 0, submitting: 1, generating: 2, texturing: 2, downlo
 const STOP_WHERE = { waiting: 'while waiting', submitting: 'before uploading', 'post-processing': 'in Finishing (Blender)', building: 'while building', stopped: '' };
 const stopping = new Set();
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+// A job runs only on the PC that queued it (2026-10-29, Store.owner): two PCs picking up the same job paid Tripo twice.
+// Another PC's waiting job says so, and offers "Run here" once that PC's review page is closed or paused.
+let myPC = '', machines = {}, openS = 180;
+const pcName = m => (m || '').replace(/-[0-9a-f]{6}$/, '') || 'another PC';
+const ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 129600 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} days`;
+function elsewhere(j) {
+  const v = machines[j.owner], pc = `<b>${esc(pcName(j.owner))}</b>`;
+  if (v && !v.paused && Date.now() / 1000 - v.at < openS) return `Waiting for ${pc}, the PC that queued it (its review page is open)`;
+  const why = !v ? 'its review page is closed' : v.paused ? 'its worker is paused' : `its review page is closed (last open ${ago(Date.now() / 1000 - v.at)} ago)`;
+  return `Waiting for ${pc}, the PC that queued it: ${why}. Open it there, or <button class="btn small" data-take="${esc(j.id)}">Run here</button>`;
+}
 function ipHTML(j) {
   const steps = STEPS[j.kind] || ['Waiting', 'Working'];
   let ix = j.status === 'queued' ? 0 : j.status === 'stopped' ? (STAGE_IX[j.stopped_stage] ?? (j.stopped_stage === 'waiting' ? 0 : 1)) : (STAGE_IX[j.stage] ?? (j.kind === 'finalize' ? 1 : 1));
@@ -1085,12 +1113,13 @@ function ipHTML(j) {
     now = `Stopped ${esc(where)}${j.kind === 'generate' && j.paid ? '. The paid model is kept.' : '. No credits were spent.'} <button class="btn small" data-retry="${esc(j.id)}">${esc(again)}</button> <button class="linkbtn" data-remove="${esc(j.id)}" title="${j.regen ? 'The card goes back to how it was before the regeneration' : 'A new product without a card moves to assets\\_deleted'}">Remove</button>`;
   }
   else if (stopping.has(j.id)) now = '<span class="spin" aria-hidden="true"></span> Stopping…';
-  else if (j.status === 'queued' && j.not_before > Date.now() / 1000) now = `Starts in <b data-count="${j.not_before}"></b> s · no credits spent yet <button class="btn small" data-cancel="${esc(j.id)}">Cancel</button>`;
+  else if (j.status === 'queued' && j.not_before > Date.now() / 1000) now = `Starts in <b data-count="${j.not_before}"></b> s${j.owner && j.owner !== myPC ? ` on <b>${esc(pcName(j.owner))}</b>` : ''} · no credits spent yet <button class="btn small" data-cancel="${esc(j.id)}">Cancel</button>`;
+  else if (j.status === 'queued' && j.owner && myPC && j.owner !== myPC) now = elsewhere(j);
   else if (j.status === 'queued') now = j.queue_ahead ? `Waiting for a free slot (${j.queue_ahead} ahead)` : '<span class="spin" aria-hidden="true"></span> Starting…';
   else {
     const t = j.started_at ? Math.max(0, (Date.now() - Date.parse(j.started_at)) / 1000) : 0;
     now = `<span class="spin" aria-hidden="true"></span> ${esc(j.stage === 'texturing' ? 'Texturing' : j.stage === 'generating' && j.kind === 'generate' ? 'Mesh' : steps[ix] || j.stage || 'Working')}${(j.stage === 'generating' || j.stage === 'texturing') && j.progress != null ? ` <b>${esc(j.progress)}%</b>` : ''}
-      · <b data-since="${esc(j.started_at || '')}">${mmss(t)}</b> <span class="what">(usually about ${Math.round(j.typical_s / 60) || 1} min)</span>`;
+      · <b data-since="${esc(j.started_at || '')}">${mmss(t)}</b> <span class="what">(usually about ${Math.round(j.typical_s / 60) || 1} min${j.machine && j.machine !== myPC ? `, on ${esc(pcName(j.machine))}` : ''})</span>`;
   }
   const pct = (j.stage === 'generating' || j.stage === 'texturing') && j.progress != null ? Math.max(4, j.stage === 'texturing' ? 50 + Number(j.progress) / 2 : Number(j.progress) / 2) : 35;
   const canStop = j.stoppable && !stopping.has(j.id) && !(j.status === 'queued' && j.not_before > Date.now() / 1000);

@@ -1,7 +1,8 @@
-"""Background worker: picks up queued jobs from the shared drive as soon as they are due and runs them."""
+"""Background worker: picks up the jobs this PC queued (Store.owner) from the shared drive as soon as they are due
+and runs them."""
 import threading, time, traceback
 from . import jobs as J, blender, stopflag
-from .store import now_iso
+from .store import now_iso, pc_name
 
 
 class Worker:
@@ -23,8 +24,11 @@ class Worker:
         threading.Thread(target=self._loop, name="autogen-worker", daemon=True).start(); return self
 
     def _loop(self):
+        seen = 0.0
         while not self.stop.is_set():
-            try: self.tick()
+            try:
+                if time.time() - seen > self.store.SEEN_S: self.store.seen(self.paused); seen = time.time()
+                self.tick()
             except Exception: traceback.print_exc()
             self.stop.wait(self.poll)
 
@@ -33,6 +37,7 @@ class Worker:
         now = time.time()
         for j in self.store.jobs():
             if j["id"] in self.running: continue
+            if not self.store.mine(j): continue                            # another PC queued it (Store.owner)
             if j["status"] == "queued" and j.get("not_before", 0) > now: continue
             if j["status"] == "running" and not self._stale(j): continue   # another machine is on it
             if self.store.claim(j):
@@ -51,8 +56,8 @@ class Worker:
         try:
             fresh = st.job_path(job)
             from .store import read_json
-            job.update(read_json(fresh, job))                 # latest copy (it may have been cancelled meanwhile)
-            if job["status"] not in ("queued", "running"): return
+            job.update(read_json(fresh, job))                 # latest copy (it may have been cancelled or moved meanwhile)
+            if job["status"] not in ("queued", "running") or not st.mine(job): return
             job.update(status="running", started_at=job.get("started_at") or now_iso(), machine=st.machine, error=None); st.save_job(job)
             ev = self.stops.setdefault(job["id"], threading.Event()); stopflag.bind(ev)
             marker = st.job_path(job).with_suffix(".stop")
@@ -80,6 +85,8 @@ class Worker:
         except Exception as e:
             job.update(status="error", error=str(e)[:2000], stage="error", finished_at=now_iso()); st.save_job(job)
             st.job_log(job, "ERROR " + str(e)[:300])
+            from . import sheet_sync
+            sheet_sync.job_failed(self.cfg, st, job, e)       # a red row in the Models sheet's failures tab (never raises)
         finally:
             stopflag.bind(None); self.stops.pop(job["id"], None)
             st.job_path(job).with_suffix(".stop").unlink(missing_ok=True)
@@ -93,9 +100,26 @@ class Worker:
                     j.update(status="cancelled", stage="replaced by a later run"); self.store.job_log(j, "not retried: a later run replaced it"); return True
                 self.store.job_path(j).with_suffix(".stop").unlink(missing_ok=True)
                 was = j["status"]
-                j.update(status="queued", error=None, not_before=0, stage="queued", started_at=None, finished_at=None)
+                j.update(status="queued", error=None, not_before=0, stage="queued", started_at=None, finished_at=None,
+                         owner=self.store.machine)            # the PC where Try again was pressed runs it
                 self.store.job_log(j, "started again after the stop" if was == "stopped" else "retry requested"); return True
         return False
+
+    def take(self, job_id):
+        """"Run here" on a job waiting for the PC that queued it (2026-10-29): this PC runs it instead. Refused while
+        that PC runs it (a fresh claim) or while its page is open and not paused, since it then starts the job itself
+        and both PCs would pay Tripo."""
+        st = self.store
+        j = next((x for x in st.jobs() if x["id"] == job_id), None)
+        if not j: raise KeyError(job_id)
+        if st.mine(j): return {"ok": True}
+        was = st.owner(j); pc = pc_name(was)
+        if j["status"] == "running" and not self._stale(j): raise ValueError(f"{pc} is running it now, so it can't be moved.")
+        if st.is_open(was):
+            raise ValueError(f"{pc}'s review page is open, so it will run this there. Pause or close it on {pc} first "
+                             f"(it shows here as closed about {st.OPEN_S // 60} minutes after that).")
+        j["owner"] = st.machine; st.job_log(j, f"moved to {pc_name(st.machine)} from {pc} (Run here)")
+        return {"ok": True}
 
 
 def mark_qa_stopped(store, job):

@@ -127,6 +127,25 @@ class WithPillow(unittest.TestCase):
         self.assertTrue((adir / "thumbnail" / f"{asset}_adw.jpg").is_file(), "the store keeps the thumbnail for export-sheet --bundle")
         self.assertEqual(exp["thumb_local"], f"thumbnail/{asset}_adw.jpg")
         rec = vendor_export.record(row, exp); self.assertEqual(rec["exported_to"], exp["glb"]); self.assertEqual(rec["export"]["dir"], str(d))
+        self.assertNotIn("session", exp, "no session folder in meta: nothing else written")
+        # queued by batch from a Desktop folder: approval also drops glb\ + thumbnails\ there
+        desk = tmp / "Desktop" / "LivingSpaces_run"; desk.mkdir(parents=True)
+        write_json(adir / "meta.json", {**META, "uuid": "5db29251-0000-0000-0000-000000000000", "deliver_dir": str(desk)})
+        exp = vendor_export.export(cfg, st, asset, row, glb, log=logs.append)
+        self.assertEqual((desk / "glb" / f"{asset}_adw.glb").read_bytes(), b"glTF-bytes")
+        self.assertEqual((desk / "thumbnails" / f"{asset}_adw.jpg").read_bytes(), (d / f"{asset}_adw.jpg").read_bytes())
+        self.assertEqual(exp["session"]["dir"], str(desk))
+        self.assertNotIn("session_csv", exp, "queued before the sheet CSV existed (no deliver_csv): no CSV written")
+        # ... and its run's sheet CSV (made at intake) gets the approved model's row
+        write_json(adir / "meta.json", {**META, "uuid": "5db29251-0000-0000-0000-000000000000", "deliver_dir": str(desk), "deliver_csv": "assets_living_spaces_x.csv"})
+        exp = vendor_export.export(cfg, st, asset, row, glb, log=logs.append)
+        self.assertEqual(exp["session_csv"], str(desk / "assets_living_spaces_x.csv"))
+        self.assertIn(f"{asset}_adw,FALSE,5db29251-0000-0000-0000-000000000000,",(desk / "assets_living_spaces_x.csv").read_text(encoding="utf-8"))
+        # the session folder is gone (another PC, or moved): logged, not created, the vendor copy still made
+        write_json(adir / "meta.json", {**META, "deliver_dir": str(tmp / "gone")})
+        exp = vendor_export.export(cfg, st, asset, row, glb, log=logs.append)
+        self.assertNotIn("session", exp); self.assertFalse((tmp / "gone").exists()); self.assertTrue(exp["glb"])
+        self.assertTrue(any("not found on this PC" in m for m in logs))
         # no Assets root: nothing copied, nothing raised
         self.assertIsNone(vendor_export.export(Config(overrides={"paths.vendors_dirs": [str(tmp / "nowhere")]}), st, asset, row, glb, log=logs.append))
         self.assertEqual(vendor_export.record(row, None), {"exported_to": None})

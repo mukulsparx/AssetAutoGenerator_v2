@@ -66,6 +66,24 @@ builder = "art"
 quads = 6
 photo = ["signature"]
 
+# Sheets and Blankets (SPA-883): duvets, comforters, quilts, coverlets, bedspreads and throw blankets, made as they lie
+# on a bed. postprocess.py step 3c puts the origin on the REST PLANE, the underside of the top layer, not on the hem of
+# the drape, so the web app sets the origin on the mattress top and the drape hangs past it. Before "pillow", whose
+# "throw" and "blanket" patterns would take these; "throw pillow" still goes to pillow (exclude).
+[[category]]
+key = "bedding"
+label = "Sheets and Blankets (origin on the rest plane: sits on the mattress top)"
+match = ["duvet", "comforter", "\\bquilts?\\b", "coverlet", "bedspread", "\\bblankets?\\b", "\\bthrows?\\b", "sheet set", "\\bsheets\\b"]
+# Furniture named after blankets (blanket chest, blanket ladder) is not bedding: it keeps the category it had before.
+exclude = ["pillow", "cushion", "mattress", "\\bchests?\\b", "ladder", "\\bracks?\\b", "bench", "basket", "trunk", "hamper"]
+builder = "tripo"
+mode = "hd"
+quads = 2000
+postprocess = "bedding"
+photo = ["signature"]
+height_cm = [1, 120]
+length_cm = [40, 300]
+
 [[category]]
 key = "pillow"
 label = "Pillows / throws"

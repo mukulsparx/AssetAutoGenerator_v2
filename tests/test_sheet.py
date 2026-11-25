@@ -108,6 +108,31 @@ class Sheet(unittest.TestCase):
         self.assertEqual(sheet.display_name("Covey Headboard twin adw", "_adw"), "Covey Headboard Twin")   # the file suffix leaked into the title
         self.assertTrue(sheet.file_name("Living Spaces").startswith("assets_living_spaces_"))
 
+    def test_session_csv_created_at_intake_rows_at_approval(self):
+        # created (header only) when batch queues; a row only once a model is approved, with its measured size; a fixed
+        # revision approved again replaces its own row; a product that never gets approved never appears
+        root = Path(tempfile.mkdtemp(prefix="sess_")); st = Store(root, "test"); out = root / "Desktop_run"; out.mkdir()
+        product(root, "Living Spaces", "odell_table_lamp", {"title": "Odell Table Lamp", "vendor": "Living Spaces", "uuid": "u-1", "dims_in": [15, 15, 30],
+                                                           "category_key": "lamp", "sku": "111", "price": 99, "deliver_dir": str(out)}, {})
+        product(root, "Living Spaces", "kona_coffee_table", {"title": "Kona Coffee Table", "vendor": "Living Spaces", "uuid": "u-2", "dims_in": [48, 24, 18],
+                                                            "category_key": "small_table", "deliver_dir": str(out)}, {})
+        self.assertIsNone(sheet.session_csv(C, st, out, []))
+        p = sheet.session_csv(C, st, out, ["odell_table_lamp", "kona_coffee_table"])
+        self.assertEqual(p, out / sheet.file_name("Living Spaces"))
+        self.assertEqual(p.read_text(encoding="utf-8"), ",".join(sheet.COLUMNS) + "\n")                   # header only until something is approved
+        meta = st.meta("odell_table_lamp"); self.assertEqual(meta["deliver_csv"], p.name)
+        self.assertIsNone(sheet.session_add(C, {**meta, "deliver_csv": None}, "odell_table_lamp", {}, "x.glb"))   # no session CSV: nothing written
+        glb = root / "Living Spaces" / "odell_table_lamp" / "final_glb" / "odell_table_lamp.glb"
+        self.assertEqual(sheet.session_add(C, meta, "odell_table_lamp", {"category_key": "lamp"}, glb, [38.0, 38.0, 76.0]), str(p))
+        sheet.session_add(C, meta, "odell_table_lamp", {"category_key": "lamp"}, glb, [38.5, 38.5, 77.0])     # fixed revision approved again
+        rows = list(csv.DictReader(io.StringIO(p.read_text(encoding="utf-8"))))
+        self.assertEqual([r["File name"] for r in rows], ["odell_table_lamp_adw"])                              # the unapproved table is not in it
+        lamp = rows[0]
+        self.assertEqual((lamp["UUID"], lamp["Category"], lamp["Price"], lamp["Width (cm)"], lamp["Height (cm)"]), ("u-1", "Table Lamp", "99", "38.5", "77.0"))
+        self.assertEqual(lamp["Image Path"], "models_images/living_spaces_images/odell_table_lamp_adw.jpg")
+        sheet.session_csv(C, st, out, ["kona_coffee_table"])                                                   # a second run the same day keeps the rows
+        self.assertEqual(len(list(csv.DictReader(io.StringIO(p.read_text(encoding="utf-8"))))), 1)
+
     def test_export_and_bundle(self):
         out = self.root / "export"
         res = sheet.export(C, self.st, out, do_bundle=True)

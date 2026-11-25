@@ -25,7 +25,7 @@ Photos are saved with Living Spaces-style view names so rules.toml needs nothing
 the thumbnail, never the single photo), lifestyle shots are room_NN (never sent), the dimension diagram dimensions_01.
 Only the URL's category path resolves (.../living-rooms/sofas/<slug>-<sku>; a wrong category is a 404), so the CSV
 must carry the URL as the site shows it."""
-import csv, html as _html, json, re, time, urllib.request
+import csv, html as _html, json, re, time, urllib.parse, urllib.request
 from pathlib import Path
 from . import clients, pipeline, rules as R
 
@@ -185,12 +185,13 @@ def is_studio(data: bytes, tol: int = 18):
     except Exception: return None
 
 
-def download(urls: list, delay: float = 1.0):
-    """[(url, bytes)] in the given order, and the failures."""
+def download(urls: list, delay: float = 1.0, referer: str = "https://www.raymourflanigan.com/"):
+    """[(url, bytes)] in the given order, and the failures. referer: the product page's site (links.py queues
+    other shops' pages through queue() too)."""
     got, failed = [], []
     for u in urls:
         try:
-            req = urllib.request.Request(u, headers={"User-Agent": UA, "Referer": "https://www.raymourflanigan.com/"})
+            req = urllib.request.Request(u, headers={"User-Agent": UA, "Referer": referer})
             with urllib.request.urlopen(req, timeout=90, context=clients._ctx()) as r: got.append((u, r.read()))
         except Exception as e: failed.append({"url": u, "error": str(e)[:120]})
         time.sleep(delay)
@@ -200,7 +201,7 @@ def download(urls: list, delay: float = 1.0):
 def name_photos(info: dict, shots: list) -> dict:
     """{filename: bytes}: the main shot is signature_01; other studio shots detail_NN; lifestyle shots room_NN;
     the dimension diagram dimensions_01. Saved as .jpg: pipeline converts the WebP bytes to real JPEGs."""
-    stem = f"{info['sku']}_{slug_of(info['url'], info['sku'])}"
+    stem = "_".join(x for x in (info.get("sku"), slug_of(info["url"], info.get("sku"))) if x)   # links.py: some shops' pages have no SKU
     out, nd, nr = {}, 0, 0
     by_url = {u: b for u, b in shots}
     first = True
@@ -228,11 +229,21 @@ def read_csv(path: Path) -> list:
     return rows
 
 
+def is_rf(url: str) -> bool:
+    return (urllib.parse.urlsplit(url or "").hostname or "").lower().endswith("raymourflanigan.com")
+
+
 def plan_url(cfg, store, row: dict, vendor: str, cache, delay: float) -> dict:
+    return plan_info(cfg, store, row, vendor, parse(fetch_cached(row["url"], cache, delay), row["url"]))
+
+
+def plan_info(cfg, store, row: dict, vendor: str, info: dict) -> dict:
+    """The plan for one parsed page: rf.parse here, or links.parse_generic for another shop (links.py, 2026-10-28).
+    The URL's category segment is an R&F convention, so it only counts on raymourflanigan.com."""
     from .batch import dims_from_manifest, existing_cards
-    info = parse(fetch_cached(row["url"], cache, delay), row["url"])
     title = row.get("title") or info["title"]
-    overrides = {k: v for k, v in (("category", row.get("category") or site_category(info["url"])), ("mode", row.get("mode")),
+    site = site_category(info["url"]) if is_rf(info["url"]) else None
+    overrides = {k: v for k, v in (("category", row.get("category") or site), ("mode", row.get("mode")),
                                    ("units", row.get("units")), ("close_back", row.get("close_back"))) if v}
     dims = dims_from_manifest(row, "in") or complete_dims(info["dims_in"], overrides.get("category"))
     if dims: overrides["dims_in"] = dims
@@ -245,7 +256,7 @@ def plan_url(cfg, store, row: dict, vendor: str, cache, delay: float) -> dict:
     problem = None
     if not info["images"]: problem = "no product photos on the page"
     elif not dims: problem = "no listed size on the page (add width_in / depth_in / height_in to the CSV row)"
-    elif info["availability"].lower().startswith("discontinued"): problem = "discontinued"
+    elif (info.get("availability") or "").lower().startswith("discontinued"): problem = "discontinued"
     return {"row": row, "info": info, "title": title, "vendor": vendor, "name": name, "dims_in": dims, "overrides": overrides, "plan": pl,
             "paid": paid, "cost": cost, "cards": existing_cards(store, name), "problem": problem}
 
@@ -253,7 +264,8 @@ def plan_url(cfg, store, row: dict, vendor: str, cache, delay: float) -> dict:
 def queue(cfg, store, p: dict, delay: float) -> dict:
     info = p["info"]
     urls = [im["url"] for im in info["images"]] + ([info["dimension_diagram"]] if info.get("dimension_diagram") else [])
-    shots, failed = download(urls, delay)
+    u = urllib.parse.urlsplit(info["url"])
+    shots, failed = download(urls, delay, f"{u.scheme}://{u.netloc}/")
     images = name_photos(info, shots)
     if not any(k.endswith("_signature_01.jpg") for k in images):
         raise ValueError("the main photo could not be downloaded: " + "; ".join(f["error"] for f in failed[:2]))
@@ -307,6 +319,7 @@ def main(cfg, store, argv) -> int:
         elif a.dry_run: out.update(status="would queue", reason=label); planned_cost += p["cost"]; queued += 1
         else:
             try:
+                p["overrides"]["deliver_dir"] = str(src.parent.resolve())      # approval drops glb\ + thumbnails\ next to the CSV
                 res = queue(cfg, store, p, a.delay)
                 out.update(status="queued", job=res["job"], cost=res["cost"], reason=label); planned_cost += res["cost"]; queued += 1
             except Exception as e: out.update(status="error", reason=str(e)[:200])
@@ -323,5 +336,11 @@ def main(cfg, store, argv) -> int:
             wr.writeheader(); wr.writerows(results)
         print(f"Written: {out_csv}")
     except OSError as e: print("NOTE: could not write the result CSV:", e)
-    if queued and not a.dry_run: print("The jobs start after the undo window and run on whichever PC has `python -m autogen serve` (Start.bat) open; review them on its page.")
+    if not a.dry_run:
+        from . import sheet
+        try:
+            sc = sheet.session_csv(cfg, store, src.parent, [r["asset"] for r in results if r["status"] == "queued"])
+            if sc: print(f"Sheet CSV: {sc}")
+        except OSError as e: print("NOTE: could not write the sheet CSV:", e)
+    if queued and not a.dry_run: print("The jobs start after the undo window and run on this PC while its review page (Start.bat) is open; another PC's page shows them as waiting for this one and can take them over with Run here.")
     return 0 if queued or a.dry_run else 1

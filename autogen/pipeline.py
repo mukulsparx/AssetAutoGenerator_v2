@@ -32,6 +32,8 @@ def submit_decision(cfg, store, row_id, rec) -> dict:
         job = store.new_job(asset, "generate", spec, not_before=time.time() + undo, row_id=row_id)
     elif result == "fail":                         # procedural rebuild: needs a person to act on the note
         rec["needs_person"] = True; store.save_decision(row_id, rec)
+        from . import sheet_sync                   # a red row in the Models sheet's failures tab
+        sheet_sync.failed(cfg, store, asset, row, "Reviewer marked Fail" + (f": {rec['note']}" if rec.get("note") else ""))
     else: raise ValueError(f"unknown result {result}")
     if job: rec["job"] = job["id"]; store.save_decision(row_id, rec)
     return {"decision": rec, "job": job and {"id": job["id"], "kind": job["kind"], "not_before": job["not_before"]}}
@@ -110,6 +112,8 @@ def add_product(cfg, store, product: dict, overrides: dict, images: dict[str, by
     meta = {**existing, "asset_name": name, "title": product["title"], "url": product.get("url"), "product_id": pid,
             "breadcrumb": product.get("breadcrumb", ""), "dims_in": dims, "photos": photos, "added_at": existing.get("added_at") or now_iso(),
             "vendor": product.get("vendor") or existing.get("vendor"), "export_dir": overrides.get("export_dir") or existing.get("export_dir"),
+            "deliver_dir": overrides.get("deliver_dir"),      # this intake's session folder (batch / batch-urls), never an older run's
+            "deliver_csv": None,                              # its sheet CSV; batch / batch-urls set it once queued (sheet.session_csv)
             "added_by": store.machine}
     pl = R.plan(meta, cfg.rules, overrides)
     if not dims: raise ValueError("Listed width × depth × height is needed before generation.")
@@ -169,10 +173,11 @@ def resize_row(cfg, store, row_id, body) -> dict:
     return {"job": {"id": job["id"], "kind": "resize", "not_before": job["not_before"]}, "dims_in": dims_in}
 
 
-def discard_row(store, row_id) -> dict:
+def discard_row(store, row_id, cfg=None) -> dict:
     """v2: take a card off the review list without deleting anything (Restore brings it back). Anything queued for it
     (a regeneration in its undo window, a QA retry, a waiting rebuild) is cancelled so no more credits are spent.
-    Accepted cards can't be discarded: change the decision first."""
+    Accepted cards can't be discarded: change the decision first. With cfg, the card gets a red row in the Models
+    sheet's failures tab (sheet_sync); Restore leaves it red until the model is approved."""
     row = store.row(row_id)
     if not row: raise KeyError(row_id)
     if row.get("status") == "approved": raise ValueError("This card is accepted (final_glb written). Change the decision before discarding it.")
@@ -189,6 +194,9 @@ def discard_row(store, row_id) -> dict:
     row.update(status="discarded", discarded_at=now_iso(), discarded_by=store.machine, status_before_discard=row.get("status"))
     store.save_row(asset, row_id, row)
     meta = store.meta(asset); meta.update(status="discarded", discarded_row=row_id); store.save_meta(asset, meta)
+    if cfg is not None:
+        from . import sheet_sync
+        sheet_sync.failed(cfg, store, asset, row, "Discarded")
     return {"ok": True, "row": row_id}
 
 

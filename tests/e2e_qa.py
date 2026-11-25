@@ -10,9 +10,11 @@ PKG = Path(__file__).resolve().parent.parent
 FIX, BLENDER = Path(sys.argv[1]), sys.argv[2]
 PY = sys.executable
 tmp = Path(tempfile.mkdtemp(prefix="autogen_qa_")); assets = tmp / "assets"; assets.mkdir()
+vendors = tmp / "vendors"; vendors.mkdir()      # approval copies here, never into the real Assets\<Vendor>\ on the drive
 (tmp / "cfg.toml").write_text('[credits]\nundo_seconds = 3\ndaily_cap = 1000\n[server]\nport = 8798\n'
                               '[qa]\nauto = true\nrender_size = 192\nrender_samples = 1\n')
 env = {**os.environ, "AUTOGEN_ASSETS_DIR": str(assets), "AUTOGEN_BLENDER": BLENDER, "AUTOGEN_CONFIG": str(tmp / "cfg.toml"),
+       "AUTOGEN_VENDORS_DIR": str(vendors),
        "LOCALAPPDATA": str(tmp / "local"), "TRIPO_API_KEY": "test", "MESHY_API_KEY": "test", "GEMINI_API_KEY": "test",
        "AUTOGEN_TRIPO_API": "http://127.0.0.1:9912/tripo", "AUTOGEN_MESHY_API": "http://127.0.0.1:9912/meshy",
        "AUTOGEN_GEMINI_API": "http://127.0.0.1:9912/gemini", "PYTHONDONTWRITEBYTECODE": "1"}

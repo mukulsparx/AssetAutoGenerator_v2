@@ -110,6 +110,17 @@ def _version_entry(ctx, asset, glb: Path, service, extra_info, build, mask=None,
     return v
 
 
+FLOATING_NOTE = "Removed floating part"
+
+
+def floating_note(rep: dict) -> list:
+    """The card's line for postprocess.py step 1c (small pieces that touch nothing, SPEC section 40), or nothing."""
+    f = rep.get("floating_removed") or {}; n = int(f.get("pieces") or 0)
+    if not n: return []
+    return [FLOATING_NOTE + ("s" if n > 1 else "") + f" ({', '.join(f.get('where') or [])}): "
+            + ("a small piece" if n == 1 else f"{n} small pieces") + " that touched nothing else in the model."]
+
+
 def build_glb(ctx, job, asset, work: Path, raw: Path, stem: str, recipe: dict, steps=None, fresh_mask=True, uid=None):
     """raw provider GLB -> post-processed GLB (+ closed back, + N units). Returns (glb, mask, report)."""
     cfg = ctx.cfg; pp = dict(recipe["pp"]); pp["name"] = asset
@@ -238,7 +249,7 @@ def generate(ctx, job, beat):
     info = ([spec["inputs_note"]] if spec.get("inputs_note") else []) + [f"{'Meshy 7.1' if service == 'meshy' else 'Tripo'} geometry and normals as delivered"
             + (f" ({units} identical units, {spec['quad_budget']:,}-quad target each)" if units > 1 else f" ({spec['quad_budget']:,}-quad target)")
             + ". Required steps only: sized, single mesh, AO baked"
-            + (", closed back panel added" if spec.get("close_back") else "") + "."]
+            + (", closed back panel added" if spec.get("close_back") else "") + "."] + floating_note(rep)
     flags = list(rep.get("flags", []))
     ver = _version_entry(ctx, asset, glb, service, info, recipe, mask, len((json.loads(mask.read_text()) if mask else {}).get("faces", [])),
                          flags, job.get("credits"), job.get("task_id"))
@@ -524,7 +535,7 @@ def resize(ctx, job, beat):
         stem = f"{side if side != 'prev' else 'prev_' + (v.get('service') or 'tripo')}_size{n}"
         glb, mask, rep = build_glb(ctx, job, asset, work, st.adir(asset) / recipe["raw"], stem, recipe, uid=uid_for(st, asset, row.get("size")))
         service = v.get("service") or ("meshy" if side == "meshy" else "tripo")
-        info = [i for i in (v.get("info") or []) if not i.startswith("Resized to ")]
+        info = [i for i in (v.get("info") or []) if not i.startswith(("Resized to ", FLOATING_NOTE))] + floating_note(rep)
         info.append(f"Resized to {dims[0]:g} × {dims[1]:g} × {dims[2]:g} in" + (" (by height, proportions kept)" if uniform else "") + ".")
         nv = _version_entry(ctx, asset, glb, service, info, recipe, mask, len((json.loads(mask.read_text()) if mask else {}).get("faces", [])),
                             list(rep.get("flags", [])), v.get("credits"), v.get("task_id"))

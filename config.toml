@@ -43,7 +43,7 @@ host = "127.0.0.1"   # this PC only
 port = 8766
 
 [credits]
-daily_cap = 1500        # stop starting paid runs once this many credits were spent today (all machines together)
+daily_cap = 2500        # stop starting paid runs once this many credits were spent today (all machines together)
 undo_seconds = 30       # a submitted regeneration waits this long before it spends credits, so it can be undone
 tripo_p2 = 100          # Tripo P2 mesh (no texture)
 tripo_texture = 20      # Tripo texture step, "detailed" (measured 2026-10-06: 20 credits)
@@ -85,6 +85,7 @@ file_suffix = "_adw"     # prod files are named <asset>_adw.glb; "" to use the t
 thumb_base = "https://storage.googleapis.com/sparx-cdn/"   # the Thumbnail column is =IMAGE("<thumb_base><Image Path>")
 thumb_ext = ".jpg"
 refine = true            # pick the finer sheet category from the title: King Bed, Coffee Table, Floor Lamp (100 cm or taller), ...
+sync = true              # approvals and failures go to the Models sheet by themselves (autogen/sheet_sync.py, "Auto Thumbnails to Sheets")
 
 [sheet.vendor_slugs]     # vendor -> folder under new_models/ and models_images/<slug>_images/ (unlisted vendors: lower-case, _ for spaces)
 "Living Spaces" = "living_spaces"
@@ -97,6 +98,7 @@ refine = true            # pick the finer sheet category from the title: King Be
 art = "Artwork"
 rug = "Area Rugs"
 mirror = "Mirror"
+bedding = "Sheets and Blankets"
 pillow = "Decor"
 office_chair = "Office Chairs"
 outdoor_daybed = "Day Beds"

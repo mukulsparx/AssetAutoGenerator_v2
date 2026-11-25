@@ -4,6 +4,8 @@ CSV which I can later easily upload to a google sheet", with the sheet's own col
 
     python -m autogen export-sheet [--vendor "Living Spaces"] [--status approved|review|all] [--out DIR] [--bundle]
     GET /api/export/sheet.csv?vendor=&status=            (the "Sheet CSV" button on the review page)
+    batch / batch-urls                                   create assets_<vendor>_<date>.csv in the run's folder as soon as
+                                                         they have queued (session_csv); each approval adds its row (session_add)
 
 What goes in each column, and where it is configured (config.toml [sheet]):
 - Thumbnail        =IMAGE("<thumb_base><Image Path>"), so the sheet shows the picture once the thumbnail is on the CDN.
@@ -23,17 +25,19 @@ What goes in each column, and where it is configured (config.toml [sheet]):
 - Image Path       models_images/<vendor slug>_images/<file name>.jpg, the CDN place for the thumbnail.
 - Asset Family, Asset Set, affiliation_link, style  left blank, as asked.
 Standard library only."""
-import csv, io, re, shutil
+import csv, io, re, shutil, threading
 from datetime import date
 from pathlib import Path
 from .store import vendor_of
+
+_SESSION_LOCK = threading.Lock()      # finalize jobs run on parallel worker threads; one read-modify-write of a session CSV at a time
 
 COLUMNS = ["Thumbnail", "File name", "Is resizable?", "UUID", "Category", "Host", "Width (cm)", "Depth (cm)", "Height (cm)", "3D Model path", "URL",
            "Display Name", "Asset Name", "SKU", "Price", "Currency", "Asset Family", "Asset Set", "Image Path", "affiliation_link", "style"]
 DEFAULT_HOSTS = {"art": "wall-based", "mirror": "wall-based"}     # every other category stands on the floor: face-based
 # Fallbacks for a config.toml without a [sheet] section (the shipped one has it).
 DEFAULT_SLUGS = {"living spaces": "living_spaces", "cort": "cort", "temple and webster": "temple_webster", "raymour & flanigan": "raymour_flanigan", "other": "other"}
-DEFAULT_CATEGORIES = {"art": "Artwork", "rug": "Area Rugs", "mirror": "Mirror", "pillow": "Decor", "office_chair": "Office Chairs",
+DEFAULT_CATEGORIES = {"art": "Artwork", "rug": "Area Rugs", "mirror": "Mirror", "bedding": "Sheets and Blankets", "pillow": "Decor", "office_chair": "Office Chairs",
                       "outdoor_daybed": "Day Beds", "lamp": "Table Lamp", "nightstand": "Nightstand", "bed": "Beds", "sectional": "Sectional Sofas",
                       "loveseat": "Loveseat", "sofa": "Sofa", "dining_chair": "Dining Chair", "accent_chair": "Accent Chair",
                       "dining_table": "Dining Tables", "cabinet": "Cabinets", "small_table": "Side Tables", "other": "Other"}
@@ -69,6 +73,7 @@ def settings(cfg) -> dict:
     s = (getattr(cfg, "data", None) or {}).get("sheet") or {}
     return {"file_suffix": str(s.get("file_suffix", "_adw")), "thumb_base": str(s.get("thumb_base", "https://storage.googleapis.com/sparx-cdn/")),
             "thumb_ext": str(s.get("thumb_ext", ".jpg")), "refine": bool(s.get("refine", True)),
+            "sync": bool(s.get("sync", True)),          # sheet_sync: approved / failed rows to the Models sheet
             "vendor_slugs": {k.strip().lower(): v for k, v in {**DEFAULT_SLUGS, **(s.get("vendor_slugs") or {})}.items()},
             "categories": {**DEFAULT_CATEGORIES, **(s.get("categories") or {})},
             "resizable": {k: bool(v) for k, v in (s.get("resizable") or {}).items()},
@@ -178,6 +183,46 @@ def file_name(vendor=None, status="approved") -> str:
     """assets_<vendor>_<date>.csv; a review / all export says so in its name, so it never overwrites the approved one."""
     v = re.sub(r"[^a-z0-9]+", "_", (vendor or "all").lower()).strip("_") or "all"
     return f"assets_{v}_{'' if status in (None, '', 'approved') else status + '_'}{date.today().isoformat()}.csv"
+
+
+def session_csv(cfg, store, folder, assets) -> Path | None:
+    """Create the run's sheet CSV in the session folder the moment `batch` / `batch-urls` has queued the products, and
+    remember its name in each queued product's meta ("deliver_csv"), so approval knows which file to add to even on a
+    later day. Mukul 2026-10-28: "the data csv should be generated immediately and kept in the same folder, with the
+    current date as suffix", then: failed products are not to be in it, "only add them if a revision is fixed and approved
+    by user/gemini". So the file starts as the header line and session_add puts each model in at approval. An existing
+    file (a second run into the same folder on the same day) is kept as it is. Returns the path, or None when nothing was queued."""
+    if not assets: return None
+    metas = {a: store.meta(a) for a in dict.fromkeys(assets)}
+    vendors = {vendor_of(m) for m in metas.values()}
+    path = Path(folder) / file_name(vendors.pop() if len(vendors) == 1 else None)
+    with _SESSION_LOCK:
+        if not path.is_file(): path.write_text(csv_text([]), encoding="utf-8")
+    for a, m in metas.items():
+        m["deliver_csv"] = path.name; store.save_meta(a, m)
+    return path
+
+
+def session_add(cfg, meta: dict, asset: str, row: dict, final_glb, dims_cm=None) -> str | None:
+    """Put one approved model into its run's sheet CSV (meta deliver_dir + deliver_csv, see session_csv), with the final
+    GLB's measured size. Called by vendor_export.export, so a Gemini auto-accept, a reviewer's accept, each size and the
+    export-vendor backfill all land here. A model approved again (a fixed revision) replaces its own row: rows are keyed
+    by File name, one per final GLB. Returns the CSV path, or None when the product has no session CSV or this PC cannot
+    see its folder (never created here, like vendor_export.deliver). OSError (the file open in Excel) is the caller's to log."""
+    if not meta.get("deliver_dir") or not meta.get("deliver_csv"): return None
+    path = Path(meta["deliver_dir"]) / meta["deliver_csv"]
+    if not path.parent.is_dir(): return None
+    pseudo = {**row, "_asset": asset, "final_glb": str(final_glb)}
+    if dims_cm: pseudo["final_dims_cm"] = dims_cm
+    rec = record(pseudo, meta, cfg)
+    with _SESSION_LOCK:
+        rows = {}
+        if path.is_file():
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f): rows[r.get("File name")] = r
+        rows[rec["File name"]] = rec
+        path.write_text(csv_text(sorted(rows.values(), key=lambda r: r.get("Asset Name") or "")), encoding="utf-8")
+    return str(path)
 
 
 def bundle(store, records, out: Path) -> dict:

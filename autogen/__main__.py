@@ -4,7 +4,7 @@
    python -m autogen export-sheet [--vendor V] [--status approved|review|all] [--out DIR] [--bundle]
                                 CSV for the asset sheet, one row per approved model (--bundle: GLBs + photos in the CDN layout too)
    python -m autogen batch <folder> [--max N] [--dry-run] [--regenerate]
-                                queue every product in a folder tree (batch.csv for the sizes) for the running app's worker
+                                queue every product in a folder tree (batch.csv for the sizes) for this PC's review page to run
    python -m autogen export-vendor [--vendor V] [--asset NAME ...] [--no-thumbnail] [--dry-run]
                                 copy approved models + 500x500 thumbnails into Assets\<Vendor>\<asset>\ (done at approval; this catches up)
    python -m autogen batch-urls <csv> [--vendor V] [--max N] [--dry-run] [--regenerate] [--delay S]

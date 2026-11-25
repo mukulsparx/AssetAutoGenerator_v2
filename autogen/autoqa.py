@@ -157,6 +157,9 @@ def gate(ctx, job, asset, row_id, s=None):
         return
     _mark(st, asset, row_id, "needs_person", score, best_side, best)
     st.job_log(job, f"best {score}/100 after {retries} retries: left for a person")
+    from . import sheet_sync
+    sheet_sync.failed(cfg, st, asset, st.row(row_id, asset), f"Gemini gave up: best {score}/100 after {retries} retries"
+                      + (f": {best['reason']}" if best.get("reason") else ""), log=lambda m: st.job_log(job, m))
 
 
 def _mark(st, asset, row_id, action, score, side, best, **extra):

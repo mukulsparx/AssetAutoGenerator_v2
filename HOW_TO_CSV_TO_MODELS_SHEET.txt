@@ -1,14 +1,28 @@
 HOW TO GET APPROVED MODELS INTO THE MODELS SHEET (CSV route)
 =============================================================
-Asset Auto Generator v2 - last updated 2026-10-26 (Mukul / Claude)
+Asset Auto Generator v2 - last updated 2026-10-28 (Mukul / Claude)
+
+SINCE 2026-10-28 THE IMPORT (STEP 3) IS AUTOMATIC once the Models sheet has the
+script from "Auto Thumbnails to Sheets" (see the README there). Approved rows
+appear in the Models tab by themselves (light yellow, thumbnail in the cell), and
+failures appear in an "Autogen failures" tab (red). The CDN upload (step 2) is
+still by hand. Use the CSV route below only when the auto-sync is off.
 
 The tool writes one CSV row per approved model, in the exact 21 columns of the
 Models tab of the Google Sheet. You upload the files to the CDN, then import the
-CSV into the sheet. Nothing here touches the sheet automatically (yet).
+CSV into the sheet.
 
 
 1. EXPORT THE CSV
 -----------------
+A run started with "batch <folder>" or "batch-urls <csv>" already has it (since
+2026-10-28): assets_<vendor>_<date>.csv is created in the run's folder the
+moment the products are queued, and each model's row is added when it is
+approved (by Gemini or by a reviewer). Failed or discarded products never get
+a row; a fixed revision approved again replaces its own row. If the file was
+open in Excel at approval the row is skipped (see the job's log); add it with
+"python -m autogen export-vendor --asset <name>". For anything else, export it:
+
 Open a Command Prompt in the tool folder and run:
 
     cd /d "G:\Shared drives\Connecter Drive\Max Scripts\_Automation tools\Asset Auto Generator\AssetAutoGenerator_v2"
@@ -58,6 +72,8 @@ broken image until the sheet re-fetches (about an hour).
 
 3. IMPORT THE CSV INTO THE MODELS SHEET
 ---------------------------------------
+(Not needed while the Models sheet's auto-sync is on; see the top of this file.)
+
 ONE-TIME SETUP (do this once per sheet, it stays):
     The Thumbnail column must not be formatted as Plain text, or imported
     formulas arrive as text and no picture shows. Click the Thumbnail column
