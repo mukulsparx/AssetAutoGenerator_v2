@@ -12,6 +12,31 @@ An entry says:
 
 ---
 
+## 2026-11-25: Models turned to the listing before sizing (Kory bed "daybed")
+
+- **What:**
+  - Post-processing now turns a model to match the listing before it sizes each axis.
+  - Beds: the clearly tallest side (the headboard) goes to the back.
+  - Other categories: when the model's long side lies across the listed width, the model gets a quarter turn.
+  - Logged as `turned_to_listing`; a card line says when it turned.
+  - Scenz runs that score low still publish as "not verified" (Mukul: "use not verified only"). Nothing changed there.
+- **Why:**
+  - The first scenz H3.1 run, Kory Grey Twin Wood Bookcase Bed (dev, 2026-11-25), was published at QA 20/100: "a daybed".
+  - Tripo took the long side as the front. The +90° Tripo turn then put the length across the width, and sizing squashed it to 0.46× and stretched it to 1.95×.
+  - Tripo's own model was in proportion. Full write-up: `SPEC.md` section 43.
+- **Files:**
+  - `blender_scripts/postprocess.py`: step 2b
+  - `autogen/jobs.py`: `turn_note`, on the generate and Fix size lines
+  - `tests/test_turn.py` (new)
+  - `tests/facing_check.py`: five turn cases
+  - `tests/test_floating.py`: the Fix size filter now also drops the turn line
+- **Checked:**
+  - Kory's real download: turned 90°, headboard at the back, sizing 0.90× / 0.99×.
+  - `facing_check.py`: all 7 cases pass.
+  - Every unit test passes (`test_handover` and the Pillow tests under WSL).
+  - The five e2e scripts with real Blender.
+- **Not checked:** a live rebuild of Kory on dev (45 credits).
+
 ## 2026-11-25: Tripo HD (H3.1) from one 3/4 photo; a low score waits for a person
 
 - **What:**

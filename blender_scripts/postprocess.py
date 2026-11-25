@@ -145,6 +145,48 @@ if cfg.get("category") not in ("lamp", "rug") and 'floating' not in SKIP:
     _b.free()
 # 2) pivot: centre X/Y, floor at Z=0
 mn, mx = bounds(); me.transform(mathutils.Matrix.Translation((-(mn[0]+mx[0])/2, -(mn[1]+mx[1])/2, -mn[2])))
+# 2b) turn to the listing (2026-11-25, SPEC section 43). From one 3/4 photo Tripo takes the side that fills the photo as
+#     the front, and for a bed that is often the long side: Kory Grey Twin Bookcase Bed came out with its length across
+#     the width, and sizing each axis to the listing squashed it to 0.46x and stretched it to 1.95x (QA 20/100, "a
+#     daybed"). Step 1's turn is right for sofas, whose long side IS the front, so this step only corrects what is
+#     clearly wrong. Beds: the clearly tallest side (25% taller than any other; the headboard, or a daybed's back) goes
+#     to the back (-Y). A side's height is the highest surface hit by rays straight down over its outer 15%, away from
+#     the corners (rays, not vertices: a flat panel with only corner vertices still counts). Everything else, and a bed
+#     with no clearly tallest side (posts at both ends): when the listing's W/D and the model's X/Y each differ by 25% or more and disagree on which is the
+#     longer, a quarter turn. Which way round a non-bed then faces is not known; QA's renders show it. Not for rugs
+#     (step 1 lays them out), bedding, lamps or a size kept by height (uniform_scale).
+TURN_RATIO, TURN_END = 1.25, 0.15
+def side_heights(n=12):
+    lo, hi = bounds(); e = hi - lo; out = {}
+    _b = bmesh.new(); _b.from_mesh(me); _tree = BVHTree.FromBMesh(_b); _down = mathutils.Vector((0, 0, -1))
+    for a, names in ((0, ("-X", "+X")), (1, ("-Y", "+Y"))):
+        b = 1 - a
+        for s, nm in zip((-1, 1), names):
+            top = 0.0
+            for u in np.linspace(0.005, TURN_END, n // 2):                       # across the band, from the very edge in
+                for w in np.linspace(TURN_END, 1 - TURN_END, n):                 # along the side, corners left out
+                    p = [0.0, 0.0, float(hi[2]) + 1.0]
+                    p[a] = float(lo[a] + u * e[a]) if s < 0 else float(hi[a] - u * e[a]); p[b] = float(lo[b] + w * e[b])
+                    hit = _tree.ray_cast(mathutils.Vector(p), _down)[0]
+                    if hit is not None: top = max(top, hit.z - float(lo[2]))
+            out[nm] = round(top, 4)
+    _b.free()
+    return out
+if (cfg.get("dims_in") and not ({"scale", "turn"} & SKIP) and not cfg.get("uniform_scale")
+        and cfg.get("category") not in ("rug", "bedding", "lamp")):
+    mn, mx = bounds(); ext = mx - mn; W, D = cfg["dims_in"][0], cfg["dims_in"][1]
+    turn, why, h = 0, "", None
+    if cfg.get("category") == "bed":
+        h = side_heights(); top = max(h, key=h.get); rest = max(v for k, v in h.items() if k != top)
+        if h[top] > 0 and h[top] >= TURN_RATIO * rest:
+            turn = {"-Y": 0, "-X": 90, "+X": -90, "+Y": 180}[top]; why = "headboard"
+    if not why and ext[1] > 0 and D > 0:
+        rl, rm = W / D, ext[0] / ext[1]
+        if (rl >= TURN_RATIO and rm <= 1 / TURN_RATIO) or (rl <= 1 / TURN_RATIO and rm >= TURN_RATIO):
+            turn, why = 90, "footprint"
+    if turn: me.transform(mathutils.Matrix.Rotation(math.radians(turn), 4, 'Z')); me.update()
+    log("turned_to_listing", {"deg": turn, "why": why or "none", "side_heights": h,
+                              "model_xy": [round(float(ext[0]), 4), round(float(ext[1]), 4)], "listed_wd_in": [W, D]})
 # 3) scale to listed dims, 1 unit = 1 cm (per axis)
 mn, mx = bounds(); ext = mx - mn
 if cfg.get("dims_in") and 'scale' not in SKIP:

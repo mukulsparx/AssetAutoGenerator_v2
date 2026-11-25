@@ -58,6 +58,49 @@ for source in ("tripo", "meshy"):
     res = json.loads(line[7:]); good = res["gltf_axis"] == "-Z"; ok &= good
     print(f"{source:6s} nose after postprocess: glTF {res['gltf_axis']}  {'OK' if good else 'WRONG'}  size {res['extent_cm']} cm")
 
+# Step 2b, turn to the listing (SPEC section 43): boxes laid out as Tripo delivers them (front +X, Blender coords),
+# then postprocess.py; checks the turn it reports, the long side (glTF X = width, Z = depth) and the taller glTF Z end.
+BOXES = r'''
+import bpy, sys, json, bmesh
+out, boxes = sys.argv[-2], json.loads(sys.argv[-1])
+bpy.ops.wm.read_factory_settings(use_empty=True)
+me = bpy.data.meshes.new("m"); ob = bpy.data.objects.new("m", me); bpy.context.scene.collection.objects.link(ob)
+bm = bmesh.new()
+for (cx, cy, cz), (sx, sy, sz) in boxes:
+    vs = bmesh.ops.create_cube(bm, size=1.0)["verts"]
+    for v in vs: v.co.x = cx + v.co.x * sx; v.co.y = cy + v.co.y * sy; v.co.z = cz + v.co.z * sz
+bm.to_mesh(me); bm.free()
+mat = bpy.data.materials.new("m"); mat.use_nodes = True; me.materials.append(mat)
+bpy.ops.export_scene.gltf(filepath=out, export_format="GLB", export_yup=True)
+'''
+ENDS = r'''
+import bpy, sys, json, numpy as np
+bpy.ops.wm.read_factory_settings(use_empty=True); bpy.ops.import_scene.gltf(filepath=sys.argv[-1])
+co = np.concatenate([np.array([(o.matrix_world @ v.co)[:] for v in o.data.vertices]) for o in bpy.context.scene.objects if o.type == 'MESH'])
+g = np.stack([co[:, 0], co[:, 2], -co[:, 1]], 1)                     # glTF x, y up, z
+lo, hi = g.min(0), g.max(0); e = hi - lo
+nz = g[g[:, 2] <= lo[2] + 0.15 * e[2], 1].max(); pz = g[g[:, 2] >= hi[2] - 0.15 * e[2], 1].max()
+print("ENDS", json.dumps({"long": "X" if e[0] > e[2] else "Z", "taller_end": "+Z" if pz > nz * 1.1 else "-Z" if nz > pz * 1.1 else "even"}))
+'''
+CASES = [   # name, category, listed W/D/H in, boxes [(centre), (size)], expected turn, long glTF axis, taller glTF Z end
+    ("bed lying sideways (Kory)", "bed", [41, 88.5, 37.5], [((0, 0, 0.25), (1.0, 2.0, 0.5)), ((0, 0.925, 0.5), (1.0, 0.15, 1.0))], 90, "Z", "+Z"),
+    ("bed facing the right way", "bed", [41, 88.5, 37.5], [((0, 0, 0.25), (2.0, 1.0, 0.5)), ((-0.925, 0, 0.5), (0.15, 1.0, 1.0))], 0, "Z", "+Z"),
+    ("bed with its headboard in front", "bed", [41, 88.5, 37.5], [((0, 0, 0.25), (2.0, 1.0, 0.5)), ((0.925, 0, 0.5), (0.15, 1.0, 1.0))], 180, "Z", "+Z"),
+    ("sofa, long side is the front", "sofa", [84, 38, 34], [((0, 0, 0.22), (0.9, 2.0, 0.45)), ((-0.35, 0, 0.45), (0.2, 2.0, 0.9))], 0, "X", "even"),
+    ("dresser lying across the width", "other", [60, 20, 32], [((0, 0, 0.4), (1.5, 0.5, 0.8))], 90, "X", "even"),
+]
+for name, cat, dims, boxes, want_deg, want_long, want_end in CASES:
+    key = name.split()[0] + str(abs(hash(name)) % 1000)
+    src, dst = OUT / f"turn_{key}_src.glb", OUT / f"turn_{key}_pp.glb"
+    blender(BOXES, src, json.dumps(boxes))
+    cfg = {"category": cat, "dims_in": dims, "name": f"turn_{key}", "mode": "tripo", "source": "tripo", "skip": ["ao", "shade", "cord", "mattress"]}
+    out_text = blender(None, src, dst, json.dumps(cfg), script_path=PKG / "blender_scripts" / "postprocess.py")
+    line = [l for l in out_text.splitlines() if l.startswith("PP turned_to_listing")][0]
+    deg = int(line.split("'deg': ")[1].split(",")[0])
+    ends = json.loads([l for l in blender(ENDS, dst).splitlines() if l.startswith("ENDS")][0][5:])
+    good = abs(deg) == want_deg and ends["long"] == want_long and (cat != "bed" or ends["taller_end"] == want_end); ok &= good
+    print(f"{name:34s} turned {deg:4d}°  long side glTF {ends['long']}  taller end {ends['taller_end']:5s} {'OK' if good else 'WRONG'}")
+
 if RAW:
     dst = OUT / "raw_pp.glb"
     cfg = {"category": "other", "dims_in": [28, 30, 47], "name": "facing_raw", "mode": "tripo", "source": "tripo", "skip": ["ao", "shade", "cord"]}

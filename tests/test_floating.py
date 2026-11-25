@@ -23,7 +23,7 @@ class FloatingNote(unittest.TestCase):
     def test_generate_and_fix_size_add_it_once(self):
         src = (PKG / "autogen" / "jobs.py").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\+ floating_note\(rep\)", src)), 2)        # generate + Fix size
-        self.assertIn('startswith(("Resized to ", FLOATING_NOTE))', src)              # Fix size drops the old line first
+        self.assertIn('startswith(("Resized to ", FLOATING_NOTE, TURN_NOTE + " "))', src)   # Fix size drops the old lines first
 
     def test_step_skips_lamps_and_rugs(self):
         src = (PKG / "blender_scripts" / "postprocess.py").read_text(encoding="utf-8")
