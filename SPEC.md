@@ -739,3 +739,25 @@ Without a Gemini key, the job's own photo goes. The version's info line names th
 - `tests/e2e.py`, `e2e_links.py`, `e2e_sizes.py` and `e2e_stop.py` now expect 45 credits per Tripo run and the H3.1 body. All four pass (2026-11-25). e2e.py's ledger is 120 (45 + 30 + 45). Their fixtures folder also needs `side_18.jpg` (named `black_wood_office_set_side_18.jpg`) and `fruit.jpg`.
 
 **Not checked yet:** a live paid run through the tool (about 135 credits on 3 products: one with a real 3/4, one without, one bed), and the two card buttons in a browser.
+
+## 43. Turned to the listing before sizing (2026-11-25)
+
+Why: the first scenz run on H3.1 (Kory Grey Twin Wood Bookcase Bed, dev, 2026-11-25) was published at QA 20/100 as "not verified": "converted into a daybed", with the headboard along the long side and the drawers on the short end. Tripo's own model was in proportion (0.51 × 0.42 × 1.0, listing 41 × 37.5 × 88.5 in). From the one 3/4 photo, Tripo took the bed's long drawer side as the front. Step 1's +90° Tripo turn (section 33) then put the length across the width, and per-axis sizing squashed it to 0.46× and stretched it to 1.95×. Step 1's turn is right for sofas, whose long side is the front (Shaw, 2026-11-23), so it stays. Mukul approved the fix on 2026-11-25.
+
+**Step 2b** (`blender_scripts/postprocess.py`, after the pivot, before sizing):
+- **Beds:** the clearly tallest side goes to the back (Blender -Y = glTF +Z). That side is the headboard, or a daybed's back. "Clearly" means at least 25% taller than every other side. A side's height is the highest surface hit by rays cast straight down over its outer 15%, away from the corners. Rays are used, not vertices, so a flat panel with only corner vertices still counts. The turn is 0°, 90°, −90° or 180°.
+- **Everything else, and beds with no clearly tallest side** (posts at both ends): when the listing's W/D and the model's X/Y each differ by 25% or more and disagree on which side is longer, the model gets a quarter turn. Which way round a non-bed then faces is not known, so the card line asks for a look, and QA's renders show it.
+- **Not for:** rugs (step 1 lays them out), bedding, lamps, a size kept by height (`uniform_scale`), no listed dims, or `skip` containing `scale` or `turn`.
+- **Logged:** `turned_to_listing` (`deg`, `why`: headboard / footprint / none, the side heights and both footprints). When it turned, the version's info gets one line (`jobs.turn_note`): "Turned 90° before sizing: the headboard (the tallest side) now stands at the back." Fix size rebuilds replace that line instead of adding another.
+
+**Scenz runs scoring low are unchanged** (Mukul, 2026-11-25: "use not verified only"). A run with no person to wait for still accepts its best attempt and publishes it with `is_verified = false`. It is never shown as Failed.
+
+**Checked:**
+- **Kory's real download:** headboard found on the -X side (0.42 against 0.24), turned 90°. Sizing is now 0.90× / 0.99× instead of 0.46× / 1.95×. The headboard ends at glTF +Z (95 cm, the foot end 54 cm) and the 225 cm length runs along the depth. Renders match the product photo.
+- **`tests/facing_check.py`** (real Blender) adds five boxes laid out as Tripo delivers them:
+  - a bed lying sideways like Kory: turned 90°
+  - a bed facing the right way: 0°
+  - a bed with its headboard in front: 180°
+  - a sofa: 0°
+  - a dresser lying across the width: 90°
+- **`tests/test_turn.py`:** the card line, the Fix size wiring, and the step's place and exclusions.

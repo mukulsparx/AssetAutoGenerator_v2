@@ -126,6 +126,18 @@ def floating_note(rep: dict) -> list:
             + ("a small piece" if n == 1 else f"{n} small pieces") + " that touched nothing else in the model."]
 
 
+TURN_NOTE = "Turned"
+
+
+def turn_note(rep: dict) -> list:
+    """The card's line for postprocess.py step 2b (turned to the listing before sizing, SPEC section 43), or nothing."""
+    t = rep.get("turned_to_listing") or {}; deg = int(t.get("deg") or 0)
+    if not deg: return []
+    if t.get("why") == "headboard":
+        return [f"{TURN_NOTE} {abs(deg)}° before sizing: the headboard (the tallest side) now stands at the back."]
+    return [f"{TURN_NOTE} {abs(deg)}° before sizing: the model's long side lay across the listed width. Check which way it faces."]
+
+
 def build_glb(ctx, job, asset, work: Path, raw: Path, stem: str, recipe: dict, steps=None, fresh_mask=True, uid=None):
     """raw provider GLB -> post-processed GLB (+ closed back, + N units). Returns (glb, mask, report)."""
     cfg = ctx.cfg; pp = dict(recipe["pp"]); pp["name"] = asset
@@ -274,7 +286,7 @@ def generate(ctx, job, beat):
     info = ([spec["inputs_note"]] if spec.get("inputs_note") else []) + [f"{'Meshy 7.1' if service == 'meshy' else 'Tripo'} geometry and normals as delivered"
             + (f" ({units} identical units, {spec['quad_budget']:,}-quad target each)" if units > 1 else f" ({spec['quad_budget']:,}-quad target)")
             + ". Required steps only: sized, single mesh, AO baked"
-            + (", closed back panel added" if spec.get("close_back") else "") + "."] + floating_note(rep)
+            + (", closed back panel added" if spec.get("close_back") else "") + "."] + floating_note(rep) + turn_note(rep)
     flags = list(rep.get("flags", []))
     ver = _version_entry(ctx, asset, glb, service, info, recipe, mask, len((json.loads(mask.read_text()) if mask else {}).get("faces", [])),
                          flags, job.get("credits"), job.get("task_id"))
@@ -633,7 +645,7 @@ def resize(ctx, job, beat):
         stem = f"{side if side != 'prev' else 'prev_' + (v.get('service') or 'tripo')}_size{n}"
         glb, mask, rep = build_glb(ctx, job, asset, work, st.adir(asset) / recipe["raw"], stem, recipe, uid=uid_for(st, asset, row.get("size")))
         service = v.get("service") or ("meshy" if side == "meshy" else "tripo")
-        info = [i for i in (v.get("info") or []) if not i.startswith(("Resized to ", FLOATING_NOTE))] + floating_note(rep)
+        info = [i for i in (v.get("info") or []) if not i.startswith(("Resized to ", FLOATING_NOTE, TURN_NOTE + " "))] + floating_note(rep) + turn_note(rep)
         info.append(f"Resized to {dims[0]:g} × {dims[1]:g} × {dims[2]:g} in" + (" (by height, proportions kept)" if uniform else "") + ".")
         nv = _version_entry(ctx, asset, glb, service, info, recipe, mask, len((json.loads(mask.read_text()) if mask else {}).get("faces", [])),
                             list(rep.get("flags", [])), v.get("credits"), v.get("task_id"))
