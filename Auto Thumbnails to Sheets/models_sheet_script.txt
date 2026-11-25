@@ -1,0 +1,323 @@
+// Models sheet sync for the Asset Auto Generator (AssetAutoGenerator_v2, autogen\sheet_sync.py). Mukul 2026-10-28.
+//
+// The tool drops one small .json file per event into
+//   Connecter Drive\Max Scripts\_Automation tools\Asset Auto Generator\assets\_runner\sheet_outbox
+// and this script applies them (every 5 minutes once auto-sync is on):
+//   approved  the model's row in the Models tab: added at the bottom, or updated in place when its File name is there
+//             already. The whole row light yellow 2, the thumbnail put into the Thumbnail cell from
+//             Assets\<Vendor>\<asset>\<File name>.jpg. Its red row in "Autogen failures" is removed.
+//   failed    a red row in the "Autogen failures" tab with the reason (Gemini gave up, a run error, a reviewer's
+//             Fail, Discard). It stays red until the model is approved. Never in the Models tab.
+// Each file is then moved to sheet_outbox\done (sheet_outbox\bad when it cannot be read).
+//
+// Menu "Asset tools": Sync now / Turn on auto-sync / Turn off auto-sync / Fill thumbnails (selected rows).
+
+// ---- settings -------------------------------------------------------------------------------------------------------
+const ASSETS_FOLDER_ID = '1VWuhXcG6vkQbnWZt9ei4MY6w4gKwgpT_';   // Connecter Drive > Assets
+const OUTBOX_FOLDER_ID = '1QuQaiTHe_EE5DcgZk8WaMesd_R8eTtVk';   // ...\Asset Auto Generator\assets\_runner\sheet_outbox
+const MODELS_TAB = 'Models';                 // the tab the asset-upserter imports from
+const FAILED_TAB = 'Autogen failures';       // made by the script the first time something fails
+const APPROVED_COLOR = '#fff2cc';            // light yellow 2
+const FAILED_COLOR = '#f4cccc';              // light red 2 ('#ff0000' for bright red)
+const SYNC_MINUTES = 5;                      // 1, 5, 10, 15 or 30
+// A model approved again (a fixed revision) refreshes these cells; the others are only filled when empty, so what
+// people typed into an existing row stays.
+const REFRESH_COLS = ['Width (cm)', 'Depth (cm)', 'Height (cm)', '3D Model path', 'Image Path'];
+const EXTRA_COLS = ['Reason', 'When', 'PC'];  // the failures tab: the Models columns, then these
+const THUMB_TRIES = 36;                      // runs to wait for a thumbnail Drive has not synced yet (36 x 5 min = 3 h)
+const BUDGET_MS = 4.5 * 60 * 1000;           // Apps Script stops a run at 6 minutes; what is left waits for the next run
+
+// ---- menu -----------------------------------------------------------------------------------------------------------
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Asset tools')
+    .addItem('Sync now', 'syncNow')
+    .addItem('Turn on auto-sync (every ' + SYNC_MINUTES + ' min)', 'turnOnAutoSync')
+    .addItem('Turn off auto-sync', 'turnOffAutoSync')
+    .addSeparator()
+    .addItem('Fill thumbnails (selected rows)', 'fillThumbnails')
+    .addToUi();
+}
+
+function syncNow() {
+  const lines = sync_();
+  SpreadsheetApp.getUi().alert(lines.join('\n') || 'Nothing new from the Asset Auto Generator.');
+}
+
+function autoSync() { sync_(); }   // what the timer runs
+
+function turnOnAutoSync() {
+  removeTriggers_();
+  ScriptApp.newTrigger('autoSync').timeBased().everyMinutes(SYNC_MINUTES).create();
+  SpreadsheetApp.getUi().alert('Auto-sync is on: every ' + SYNC_MINUTES + ' minutes, as ' + Session.getEffectiveUser().getEmail() +
+    ', also while this sheet is closed. Asset tools > Turn off auto-sync stops it.');
+}
+
+function turnOffAutoSync() {
+  SpreadsheetApp.getUi().alert(removeTriggers_() ? 'Auto-sync is off.' : 'Auto-sync was not on for your account.');
+}
+
+function removeTriggers_() {
+  let n = 0;
+  for (const t of ScriptApp.getProjectTriggers()) if (t.getHandlerFunction() === 'autoSync') { ScriptApp.deleteTrigger(t); n++; }
+  return n;
+}
+
+// ---- sync -----------------------------------------------------------------------------------------------------------
+function sync_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10 * 1000)) return ['Another sync is running; try again in a minute.'];
+  const started = Date.now(), lines = [];
+  try {
+    const ctx = context_();
+    const outbox = DriveApp.getFolderById(OUTBOX_FOLDER_ID);
+    const done = subfolder_(outbox, 'done'), bad = subfolder_(outbox, 'bad');
+    const files = [];
+    const it = outbox.getFiles();
+    while (it.hasNext()) {
+      const f = it.next(), n = f.getName();
+      if (/\.json$/i.test(n) && !/^[._]/.test(n) && !f.isTrashed()) files.push(f);   // .x.json.tmp: still being written
+    }
+    files.sort((a, b) => (a.getName() < b.getName() ? -1 : 1));                       // names start with the UTC time
+    for (let i = 0; i < files.length; i++) {
+      if (Date.now() - started > BUDGET_MS) { lines.push((files.length - i) + ' left for the next run'); break; }
+      const f = files[i];
+      let ev;
+      try {
+        ev = JSON.parse(f.getBlob().getDataAsString('UTF-8'));
+        if (!ev.file_name || (ev.event !== 'approved' && ev.event !== 'failed')) throw new Error('not an event');
+      } catch (e) {
+        move_(f, bad); lines.push(f.getName() + ': not readable (' + e.message + '), moved to bad'); continue;
+      }
+      try {
+        lines.push(ev.event === 'approved' ? approved_(ctx, ev) : failed_(ctx, ev));
+        move_(f, done);
+      } catch (e) {
+        lines.push(ev.file_name + ': ' + e.message + ' (tried again next run)');
+      }
+    }
+    return lines.concat(retryThumbs_(ctx, started));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function context_() {
+  const ss = SpreadsheetApp.getActive();
+  const models = ss.getSheetByName(MODELS_TAB);
+  if (!models) throw new Error('This spreadsheet has no tab named "' + MODELS_TAB + '" (MODELS_TAB at the top of the script)');
+  const fs = ss.getSheetByName(FAILED_TAB);
+  return { ss: ss, models: models, mh: header_(models), fs: fs, fh: fs ? header_(fs) : null, assets: null, vendors: null };
+}
+
+function approved_(ctx, ev) {
+  const sh = ctx.models, h = ctx.mh;
+  let r = findRow_(sh, h, ev.file_name), what;
+  if (r) { putValues_(sh, h, r, ev.columns, REFRESH_COLS); what = 'row ' + r + ' updated'; }
+  else { r = appendRow_(sh, h, ev.columns); what = 'row ' + r + ' added'; }
+  sh.getRange(r, 1, 1, h.width).setBackground(APPROVED_COLOR);
+  const t = putThumb_(ctx, sh, h, r, ev.thumb_dir, ev.file_name);
+  if (t === 'missing') pend_(ev.file_name, ev.thumb_dir);
+  if (ctx.fs) { let fr; while ((fr = findRow_(ctx.fs, ctx.fh, ev.file_name))) ctx.fs.deleteRow(fr); }
+  return ev.file_name + ': approved, ' + MODELS_TAB + ' ' + what + (t === 'ok' ? ', thumbnail in' : t === 'missing' ? ', thumbnail when Drive has it' : ', ' + t);
+}
+
+function failed_(ctx, ev) {
+  if (findRow_(ctx.models, ctx.mh, ev.file_name))
+    return ev.file_name + ': ' + ev.reason + ' - already approved in ' + MODELS_TAB + ', left as it is';
+  if (!ctx.fs) {
+    const names = ctx.mh.names.slice();
+    while (names.length && !names[names.length - 1]) names.pop();
+    const head = names.concat(EXTRA_COLS);
+    ctx.fs = ctx.ss.insertSheet(FAILED_TAB, ctx.ss.getNumSheets());
+    ctx.fs.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
+    ctx.fs.setFrozenRows(1);
+    ctx.fh = header_(ctx.fs);
+  }
+  const cols = Object.assign({}, ev.columns, { 'Reason': ev.reason || 'failed', 'When': String(ev.at || '').replace('T', ' ').slice(0, 16), 'PC': ev.machine || '' });
+  let r = findRow_(ctx.fs, ctx.fh, ev.file_name);
+  if (r) putValues_(ctx.fs, ctx.fh, r, cols, null); else r = appendRow_(ctx.fs, ctx.fh, cols);
+  ctx.fs.getRange(r, 1, 1, ctx.fh.width).setBackground(FAILED_COLOR);
+  return ev.file_name + ': red row in ' + FAILED_TAB + ' (' + ev.reason + ')';
+}
+
+// ---- rows -----------------------------------------------------------------------------------------------------------
+function norm_(s) { return String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '); }
+function key_(s) { return norm_(s).replace(/\.glb$/, ''); }
+
+// The header row: the first of the top 5 rows that has a "File name" cell.
+function header_(sh) {
+  const w = Math.max(1, sh.getLastColumn()), n = Math.min(5, Math.max(1, sh.getLastRow()));
+  const vals = sh.getRange(1, 1, n, w).getDisplayValues();
+  for (let r = 0; r < n; r++) {
+    const names = vals[r].map(v => String(v).trim());
+    if (names.some(v => norm_(v) === 'file name')) {
+      const col = {};
+      names.forEach((v, i) => { if (v && !(norm_(v) in col)) col[norm_(v)] = i + 1; });
+      return { row: r + 1, names: names, col: col, width: w };
+    }
+  }
+  throw new Error('"' + sh.getName() + '" has no "File name" header in its first 5 rows');
+}
+
+function findRow_(sh, h, fileName) {
+  const last = sh.getLastRow();
+  if (last <= h.row) return 0;
+  const vals = sh.getRange(h.row + 1, h.col['file name'], last - h.row, 1).getDisplayValues(), k = key_(fileName);
+  for (let i = 0; i < vals.length; i++) if (key_(vals[i][0]) === k) return h.row + 1 + i;
+  return 0;
+}
+
+function byHeader_(cols) {
+  const m = {};
+  for (const k in cols) m[norm_(k)] = cols[k];
+  return m;
+}
+
+function blank_(v) { return v === '' || v === null || v === undefined; }
+
+// A new row at the bottom, as tall as the row above it (so the thumbnail shows like the others).
+function appendRow_(sh, h, cols) {
+  const m = byHeader_(cols), before = sh.getLastRow();
+  sh.appendRow(h.names.map(n => { const k = norm_(n); return !k || k === 'thumbnail' || blank_(m[k]) ? '' : m[k]; }));
+  const r = sh.getLastRow();
+  if (before > h.row) sh.setRowHeight(r, sh.getRowHeight(before));
+  return r;
+}
+
+// Cell by cell, so formulas elsewhere in the row stay. Never blanks a cell. refresh: the column names that are
+// overwritten when they have a value already (the rest are only filled when empty); null = every column.
+function putValues_(sh, h, r, cols, refresh) {
+  const m = byHeader_(cols), cur = sh.getRange(r, 1, 1, h.width).getValues()[0];
+  const always = refresh ? refresh.map(norm_) : null;
+  for (const k in m) {
+    const c = h.col[k], v = m[k];
+    if (!c || k === 'thumbnail' || blank_(v)) continue;
+    const had = cur[c - 1];
+    if (!blank_(had) && always && always.indexOf(k) < 0) continue;
+    if (String(had) === String(v)) continue;
+    sh.getRange(r, c).setValue(v);
+  }
+}
+
+// ---- thumbnails -----------------------------------------------------------------------------------------------------
+// 'ok', 'missing' (not in Assets yet: Drive may still be uploading it), or what went wrong.
+function putThumb_(ctx, sh, h, r, dir, fileName) {
+  const c = h.col['thumbnail'];
+  if (!c) return 'no Thumbnail column';
+  const f = thumbFile_(ctx, dir, fileName);
+  if (!f) return 'missing';
+  try {
+    sh.getRange(r, c).setValue(cellImage_(f, fileName));
+    return 'ok';
+  } catch (e) {
+    return 'thumbnail not put in: ' + e.message;
+  }
+}
+
+function cellImage_(file, title) {
+  const blob = file.getBlob();
+  return SpreadsheetApp.newCellImage()
+    .setSourceUrl('data:' + (blob.getContentType() || 'image/jpeg') + ';base64,' + Utilities.base64Encode(blob.getBytes()))
+    .setAltTextTitle(title)
+    .build();
+}
+
+function live_(it) {
+  while (it.hasNext()) { const x = it.next(); if (!x.isTrashed()) return x; }
+  return null;
+}
+
+// Assets\<dir...>\<File name>.jpg; without a dir (Fill thumbnails), every vendor folder is searched.
+function thumbFile_(ctx, dir, fileName) {
+  if (!ctx.assets) ctx.assets = DriveApp.getFolderById(ASSETS_FOLDER_ID);
+  if (dir && dir.length) {
+    let f = ctx.assets;
+    for (const part of dir) { f = live_(f.getFoldersByName(part)); if (!f) return null; }
+    return live_(f.getFilesByName(fileName + '.jpg'));
+  }
+  if (!ctx.vendors) {
+    ctx.vendors = [];
+    const it = ctx.assets.getFolders();
+    while (it.hasNext()) ctx.vendors.push(it.next());
+  }
+  return findThumb(ctx.vendors, fileName);
+}
+
+// File name solara_sofa_adw -> a vendor folder's solara_sofa\solara_sofa_adw.jpg; a size (solara_sofa_large_adw) is in
+// the product's folder too, so up to two trailing parts are dropped to find it.
+function findThumb(vendors, name) {
+  const parts = name.replace(/_adw$/, '').split('_');
+  for (let cut = 0; cut <= 2 && parts.length - cut > 0; cut++) {
+    const asset = parts.slice(0, parts.length - cut).join('_');
+    for (const v of vendors) {
+      const dirs = v.getFoldersByName(asset);
+      while (dirs.hasNext()) {
+        const d = dirs.next();
+        if (d.isTrashed()) continue;
+        const f = live_(d.getFilesByName(name + '.jpg'));
+        if (f) return f;
+      }
+    }
+  }
+  return null;
+}
+
+function pending_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('pendingThumbs') || '{}'); }
+  catch (e) { return {}; }
+}
+
+function savePending_(all) {
+  const keys = Object.keys(all);
+  while (keys.length > 60) delete all[keys.shift()];     // a script property holds about 9 KB
+  PropertiesService.getScriptProperties().setProperty('pendingThumbs', JSON.stringify(all));
+}
+
+function pend_(name, dir) {
+  const all = pending_();
+  all[name] = { dir: dir || [], tries: 0 };
+  savePending_(all);
+}
+
+function retryThumbs_(ctx, started) {
+  const all = pending_(), lines = [];
+  for (const name of Object.keys(all)) {
+    if (Date.now() - started > BUDGET_MS) break;
+    const r = findRow_(ctx.models, ctx.mh, name);
+    if (!r) { delete all[name]; continue; }
+    const t = putThumb_(ctx, ctx.models, ctx.mh, r, all[name].dir, name);
+    if (t !== 'missing') { delete all[name]; lines.push(name + ': ' + (t === 'ok' ? 'thumbnail in' : t)); continue; }
+    if (++all[name].tries >= THUMB_TRIES) {
+      delete all[name];
+      lines.push(name + ': thumbnail still not in Assets after ' + THUMB_TRIES + ' tries; Fill thumbnails adds it later');
+    }
+  }
+  savePending_(all);
+  return lines;
+}
+
+// ---- Drive ----------------------------------------------------------------------------------------------------------
+function subfolder_(parent, name) {
+  return live_(parent.getFoldersByName(name)) || parent.createFolder(name);
+}
+
+// Moving a file in a shared drive needs Content manager; without it the file is renamed _<name>, which the sync skips.
+function move_(file, folder) {
+  try { file.moveTo(folder); }
+  catch (e) { file.setName('_' + file.getName()); }
+}
+
+// ---- Fill thumbnails (selected rows), any tab with "Thumbnail" and "File name" headers -------------------------------
+function fillThumbnails() {
+  const sh = SpreadsheetApp.getActiveSheet(), h = header_(sh);
+  if (!h.col['thumbnail']) throw new Error('This tab has no "Thumbnail" header');
+  const ctx = { assets: null, vendors: null }, sel = sh.getActiveRange(), log = [];
+  const names = sh.getRange(sel.getRow(), h.col['file name'], sel.getNumRows(), 1).getDisplayValues();
+  for (let i = 0; i < names.length; i++) {
+    const r = sel.getRow() + i, name = String(names[i][0]).trim().replace(/\.glb$/i, '');
+    if (r <= h.row || !name) continue;
+    const t = putThumb_(ctx, sh, h, r, null, name);
+    log.push('row ' + r + ': ' + name + ' ' + (t === 'ok' ? 'OK' : t === 'missing' ? '- ' + name + '.jpg not found in Assets' : '- ' + t));
+  }
+  SpreadsheetApp.getUi().alert(log.join('\n') || 'No File names in the selected rows');
+}

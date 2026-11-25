@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Product Links · Asset Auto Generator</title>
+<style>
+:root { --bg: #eef0ef; --surface: #fbfbfa; --ink: #1d2322; --muted: #5d6765; --line: #d6dbd9; --accent: #2b5f8a; --accent-soft: #dde8f1;
+  --pass: #2f7a4b; --pass-soft: #dcefe2; --fail: #b3382c; --fail-soft: #f6dfdb; --warn-soft: #f4ead3; --r: 10px;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; --f-data: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #141817; --surface: #1c2120; --ink: #e6eae9; --muted: #9aa5a2; --line: #2e3533;
+  --accent: #7fb2dc; --accent-soft: #1f3344; --pass: #6fcb90; --pass-soft: #1b3325; --fail: #f08a7e; --fail-soft: #3a1f1c; --warn-soft: #362b15; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #141817; --surface: #1c2120; --ink: #e6eae9; --muted: #9aa5a2; --line: #2e3533; --accent: #7fb2dc; --accent-soft: #1f3344;
+  --pass: #6fcb90; --pass-soft: #1b3325; --fail: #f08a7e; --fail-soft: #3a1f1c; --warn-soft: #362b15; color-scheme: dark }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); padding-inline: 16px; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 20px 48px; display: grid; gap: 16px; }
+h1 { font: 600 26px var(--f-body); margin: 0; }
+h2 { font: 600 16px var(--f-body); margin: 0 0 8px; }
+.sub, .notice { color: var(--muted); margin: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+input[type=text], input[type=number], select, textarea { font: 13px var(--f-data); padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
+textarea { min-height: 120px; resize: vertical; }
+.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink); }
+.btn { font: 600 13px var(--f-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+.btn.small { padding: 4px 10px; font-size: 12px; }
+.btn.go { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.ph { width: 92px; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; cursor: pointer; padding: 0; font: 11px var(--f-data); color: #333; text-align: center; }
+.ph img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; }
+.ph[aria-pressed="false"] { opacity: .35; }
+.ph.used { border-color: var(--accent); }
+.plan { font-size: 13px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); margin: 0; }
+.plan b { font-family: var(--f-data); font-weight: 500; }
+.err { color: var(--fail); font-size: 13px; margin: 0; }
+.ok { color: var(--pass); font-size: 13px; }
+.warn { background: var(--warn-soft); border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 0; }
+[hidden] { display: none !important; }
+code { font: 12px var(--f-data); background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cards { display: grid; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; }
+.card.off { opacity: .7; }
+.card.sent { border-color: var(--pass); }
+.card .head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.card .head .title { flex: 1; min-width: 220px; font: 600 14px var(--f-body); }
+.card .facts { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.card .facts b { font: 500 12px var(--f-data); color: var(--ink); }
+.dims { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.cm { font: 12px var(--f-data); color: var(--muted); }
+.added { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.added li { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--bg); }
+.added b { font: 500 13px var(--f-data); }
+.added .st { color: var(--muted); }
+.sendbar { position: sticky; bottom: 0; }
+</style></head><body>
+<div class="wrap">
+  <div><h1>Add product links</h1><p class="sub">Load a vendor's product pages, check what was read, then send them as tasks. <a href="/">Back to the review page</a> · <a href="/intake">Add one product</a></p></div>
+
+  <section class="panel">
+    <h2>1. Paste links or open a .txt file</h2>
+    <p class="notice">Any text works: the product links are picked out of it, one product per link. Each page is read from this PC, 1.5 s apart per site. Raymour &amp; Flanigan pages are read in full; other shops from the product data their pages carry, so check the size on every card. Living Spaces refuses automated requests: add those on <a href="/intake">Add products</a> with the bookmark.</p>
+    <textarea id="text" placeholder="https://www.raymourflanigan.com/living-rooms/sofas/carmine-sofa-200235148&#10;https://..."></textarea>
+    <div class="grid">
+      <label>Vendor (one per list: the folder these assets go in) <input type="text" id="vendor" list="vendorlist" placeholder="guessed from the links"><datalist id="vendorlist"><option>Raymour &amp; Flanigan</option><option>CORT</option><option>Temple and Webster</option><option>Other</option></datalist></label>
+      <label>Or a .txt file with links <input type="file" id="file" accept=".txt,.csv,text/plain"></label>
+    </div>
+    <div class="row"><button type="button" class="btn go" id="load">Load the links</button><button type="button" class="btn" id="clear">Clear the list</button><span id="loadmsg" class="notice" aria-live="polite"></span></div>
+  </section>
+
+  <section class="panel" id="reviewpanel" hidden>
+    <h2>2. Review</h2>
+    <p class="notice">Ticked cards are sent. Correct the size (inches) and category where the page got them wrong; click a photo to leave it out (the outlined one is the main photo). Edits re-plan the card.</p>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section class="panel sendbar" id="sendpanel" hidden>
+    <h2>3. Send as tasks</h2>
+    <label>Session folder: gets the run's sheet CSV and links_result.csv now, and each approved GLB and thumbnail later <input type="text" id="folder"></label>
+    <label class="chk"><input type="checkbox" id="regen"> New version for products that already have a card</label>
+    <p class="plan" id="totals"></p>
+    <div class="row"><button type="button" class="btn go" id="send" disabled>Send</button><span id="sendmsg" aria-live="polite"></span></div>
+  </section>
+
+  <section class="panel" id="runpanel" hidden>
+    <h2>Sent</h2>
+    <p class="notice" id="runmsg" aria-live="polite"></p>
+    <ul class="added" id="runlist"></ul>
+  </section>
+</div>
+<script>
+const $ = s => document.querySelector(s); const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => Number(n).toLocaleString('en-US');
+async function api(m, u, b) { const r = await fetch(u, { method: m, headers: b ? { 'Content-Type': 'application/json' } : {}, body: b ? JSON.stringify(b) : undefined });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; }
+
+let items = [], cats = [], status = {}, folderTouched = false, sending = false;
+const vendor = () => $('#vendor').value.trim();
+const num = v => { const n = parseFloat(v); return isFinite(n) && n > 0 ? n : null; };
+const g = n => n == null ? '' : String(Math.round(n * 100) / 100);
+
+async function boot() {
+  try { cats = (await api('GET', '/api/rules')).categories; } catch {}
+  await refreshStatus();
+}
+async function refreshStatus() { try { status = await api('GET', '/api/status'); } catch {} totals(); }
+
+$('#file').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const t = await f.text(); $('#text').value = ($('#text').value.trim() ? $('#text').value.trim() + '\n' : '') + t; e.target.value = '';
+  $('#loadmsg').textContent = `Read ${f.name}. Press Load the links.`;
+});
+$('#clear').addEventListener('click', () => {
+  if (sending) return;
+  items = []; $('#cards').innerHTML = ''; $('#reviewpanel').hidden = $('#sendpanel').hidden = true; $('#loadmsg').textContent = ''; totals();
+});
+$('#vendor').addEventListener('change', setFolder);
+$('#folder').addEventListener('input', () => { folderTouched = true; });
+async function setFolder() {
+  if (folderTouched) return;
+  try { $('#folder').value = (await api('GET', '/api/links/folder?vendor=' + encodeURIComponent(vendor() || 'Other'))).folder; } catch {}
+}
+
+$('#load').addEventListener('click', async () => {
+  const msg = $('#loadmsg');
+  let ex; try { ex = await api('POST', '/api/links/extract', { text: $('#text').value }); } catch (e) { msg.textContent = 'Could not read the links: ' + e.message; return; }
+  const fresh = ex.urls.filter(u => !items.some(it => it.url === u));
+  if (!ex.urls.length) { msg.textContent = 'No http(s) links in the text.'; return; }
+  if (!vendor()) { $('#vendor').value = ex.vendor; }
+  const sites = Object.keys(ex.sites);
+  msg.textContent = `${ex.urls.length} link(s)` + (fresh.length < ex.urls.length ? `, ${ex.urls.length - fresh.length} already on the list` : '') + (sites.length > 1 ? ` from ${sites.length} sites (${sites.join(', ')}): they all go to the vendor folder "${vendor()}"` : '') + '.';
+  setFolder();
+  $('#reviewpanel').hidden = $('#sendpanel').hidden = false;
+  const todo = fresh.map(url => { const it = { url, state: 'loading', touched: {}, skip: new Set() }; items.push(it); it.el = document.createElement('article'); it.el.className = 'card'; $('#cards').append(it.el); draw(it); return it; });
+  let next = 0;
+  const worker = async () => { while (next < todo.length) { const it = todo[next++]; await fetchItem(it, false); } };
+  await Promise.all([worker(), worker(), worker()]);             // the server spaces requests to one site 1.5 s apart
+  const okN = items.filter(it => it.state === 'ok').length;
+  msg.textContent += ` Loaded ${okN} of ${items.length}.`;
+});
+
+function rowOf(it) {
+  const el = it.el, r = { skip_images: [...it.skip] };
+  if (it.touched.title) r.title = el.querySelector('.title').value.trim();
+  if (it.touched.cat) r.category = el.querySelector('.cat').value;
+  const u = parseInt(el.querySelector('.units')?.value || '1', 10); if (u > 1) r.units = u;
+  const [w, dp, h] = ['.w', '.d', '.h'].map(s => num(el.querySelector(s)?.value));
+  if (w && dp && h) Object.assign(r, { w_in: w, d_in: dp, h_in: h });
+  return r;
+}
+
+async function fetchItem(it, fresh) {
+  try {
+    const d = await api('POST', '/api/links/load', { url: it.url, vendor: vendor(), row: {}, fresh });
+    it.data = d; it.state = d.blocked ? 'blocked' : d.error ? 'error' : 'ok';
+  } catch (e) { it.state = 'error'; it.data = { error: e.message }; }
+  it.skip.clear(); it.touched = {};
+  it.pick = it.state === 'ok' && !it.data.problem && !it.data.busy && !(it.data.cards || []).length;
+  draw(it); totals();
+}
+
+let timers = new WeakMap();
+function replan(it) {
+  clearTimeout(timers.get(it));
+  timers.set(it, setTimeout(async () => {
+    const row = rowOf(it), had = !!it.data.problem;
+    try {
+      const d = await api('POST', '/api/links/load', { url: it.url, vendor: vendor(), row });
+      it.data = d.error || d.blocked ? { ...it.data, problem: 'Could not re-plan: ' + (d.error || d.problem) } : d;
+    } catch (e) { it.data = { ...it.data, problem: 'Could not re-plan: ' + e.message }; }
+    if (it.data.problem) it.pick = false; else if (had && !it.data.problem) it.pick = true;
+    derived(it); totals();
+  }, 500));
+}
+
+function draw(it) {
+  const el = it.el, d = it.data || {};
+  el.classList.toggle('sent', it.state === 'sent');
+  if (it.state === 'loading') { el.innerHTML = `<p class="notice">Loading <code>${esc(it.url)}</code>…</p>`; return; }
+  if (it.state !== 'ok' && it.state !== 'sent') {
+    el.innerHTML = `<div class="head"><a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer"><code>${esc(it.url)}</code></a></div>
+      <p class="err">${esc(it.state === 'blocked' ? d.problem : 'Could not load: ' + (d.error || '?'))}</p>
+      <div class="row">${it.state === 'error' ? '<button type="button" class="btn small reload">Load again</button>' : ''}<button type="button" class="btn small rm">Remove</button></div>`;
+    el.querySelector('.reload')?.addEventListener('click', () => { it.state = 'loading'; draw(it); fetchItem(it, true); });
+    el.querySelector('.rm').addEventListener('click', () => remove(it));
+    return;
+  }
+  const f = d.facts || {}, li = d.listed_in || [];
+  const opts = cats.map(c => `<option value="${esc(c.key)}" ${c.key === d.category_key ? 'selected' : ''}>${esc(c.label)}</option>`).join('') || `<option value="${esc(d.category_key)}">${esc(d.category_label)}</option>`;
+  const dims = d.dims_in || li;
+  el.innerHTML = `<div class="head">
+      <label class="chk"><input type="checkbox" class="pick"> Send</label>
+      <input type="text" class="title" value="${esc(d.title)}" aria-label="Product title">
+      <a href="${esc(d.page_url || it.url)}" target="_blank" rel="noopener noreferrer">page ↗</a>
+      <button type="button" class="btn small rm" title="Take it off the list">Remove</button></div>
+    <div class="facts">${[['SKU', f.sku], ['Price', f.price != null ? `${fmt(f.price)} ${f.currency || ''}` : null], ['Brand', f.brand], ['Style', f.style], ['Colour', f.color],
+      ['Stock', f.availability], ['Category on the site', f.breadcrumb]].filter(x => x[1]).map(([k, v]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}</div>
+    <div class="photos"></div>
+    <div class="dims">
+      <label>Width (in) <input type="number" class="w" step="0.01" min="0" value="${g(dims[0])}"></label>
+      <label>Depth (in) <input type="number" class="d" step="0.01" min="0" value="${g(dims[1])}"></label>
+      <label>Height (in) <input type="number" class="h" step="0.01" min="0" value="${g(dims[2])}"></label>
+      <label>Category <select class="cat">${opts}</select></label>
+      <label>Units (set of) <input type="number" class="units" min="1" max="12" value="${d.units || 1}"></label></div>
+    <p class="notice dimsrc"></p>
+    <div class="derived" style="display:grid;gap:8px"></div>`;
+  el.querySelector('.rm').addEventListener('click', () => remove(it));
+  const pick = el.querySelector('.pick'); pick.addEventListener('change', () => { it.pick = pick.checked; totals(); el.classList.toggle('off', !it.pick); });
+  el.querySelector('.title').addEventListener('input', () => { it.touched.title = true; replan(it); });
+  el.querySelector('.cat').addEventListener('change', () => { it.touched.cat = true; replan(it); });
+  for (const s of ['.w', '.d', '.h', '.units']) el.querySelector(s).addEventListener('input', () => { cmLine(it); replan(it); });
+  photos(it); cmLine(it); derived(it);
+}
+
+function photos(it) {
+  const box = it.el.querySelector('.photos'); const ims = (it.data.images || []);
+  const main = ims.find(im => !it.skip.has(im.url));
+  box.innerHTML = ims.map((im, n) => `<button type="button" class="ph ${im === main ? 'used' : ''}" data-n="${n}" aria-pressed="${!it.skip.has(im.url)}" title="${it.skip.has(im.url) ? 'Left out: click to use it' : 'Click to leave it out'}"><img src="${esc(im.url)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span>${im === main ? 'main' : it.skip.has(im.url) ? 'left out' : 'photo ' + (n + 1)}</span></button>`).join('')
+    || '<p class="err">No photos on the page.</p>';
+  box.querySelectorAll('.ph').forEach(b => b.addEventListener('click', () => {
+    const u = ims[+b.dataset.n].url; it.skip.has(u) ? it.skip.delete(u) : it.skip.add(u); photos(it); replan(it);
+  }));
+}
+
+function cmLine(it) {
+  const el = it.el, [w, dp, h] = ['.w', '.d', '.h'].map(s => num(el.querySelector(s).value)), d = it.data, li = d.listed_in || [];
+  const typed = [w, dp, h].some((v, i) => v != null && Math.abs(v - (li[i] ?? -1)) > 0.005);
+  const src = !li.length ? (w && dp && h ? 'You typed the size (the page lists none).' : 'The page lists no size: type it.') : typed ? 'You changed the size.' : `Read from: ${d.dims_source || 'the page'}.` + (li[2] == null ? ' No height listed.' : '');
+  el.querySelector('.dimsrc').textContent = (w && dp && h ? `${g(w * 2.54)} × ${g(dp * 2.54)} × ${g(h * 2.54)} cm. ` : '') + src;
+}
+
+function derived(it) {
+  const el = it.el, d = it.data, box = el.querySelector('.derived'); if (!box) return;
+  const pick = el.querySelector('.pick'); pick.checked = !!it.pick; pick.disabled = !!d.problem || it.state === 'sent'; el.classList.toggle('off', !it.pick);
+  const cards = d.cards || [];
+  box.innerHTML = [
+    it.state === 'sent' ? `<p class="ok">Sent: ${esc(it.sent)}</p>` : '',
+    `<p class="plan">Asset <b>${esc(d.name)}</b> · ${esc(d.category_label)} · ${esc(d.mode_label || d.builder)} · ${d.paid ? `<b>${fmt(d.cost)}</b> credits` : 'free (built in Blender)'}${d.units > 1 ? ` · one unit generated, ${d.units} side by side` : ''}</p>`,
+    d.problem ? `<p class="err">${esc(d.problem)}</p>` : '',
+    d.busy ? '<p class="warn">A generation for this asset is already queued or running: it will be skipped.</p>' : '',
+    cards.length ? `<p class="warn">Already has a card (${esc(cards[cards.length - 1].status)} v${esc(cards[cards.length - 1].version)}). It is skipped unless "New version for products that already have a card" is ticked below.</p>` : '',
+    d.set_count > 1 && (d.units || 1) === 1 ? `<p class="warn">The title says set of ${d.set_count}: put ${d.set_count} in Units to generate one and copy it side by side.</p>` : '',
+    d.size_warning ? `<p class="warn">${esc(d.size_warning.message)}</p>` : '',
+  ].join('');
+}
+
+function remove(it) { if (sending) return; items = items.filter(x => x !== it); it.el.remove(); totals(); }
+
+function totals() {
+  const picked = items.filter(it => it.pick && it.state === 'ok' && !it.data.problem);
+  const cost = picked.reduce((s, it) => s + (it.data.paid ? it.data.cost : 0), 0);
+  const cap = status.daily_cap, spent = status.credits_today, bal = (status.balances || {}).tripo;
+  $('#totals').innerHTML = `<b>${picked.length}</b> ticked · up to <b>${fmt(cost)}</b> credits` +
+    (cap != null ? ` · today <b>${fmt(spent || 0)}</b> of the <b>${fmt(cap)}</b> cap` : '') + (bal != null ? ` · Tripo balance <b>${fmt(bal)}</b>` : '') +
+    (cap != null && (spent || 0) + cost > cap ? ' · <span class="err">over the daily cap: the last ones are left for tomorrow</span>' : '') +
+    ` · each run waits ${status.undo_seconds ?? 30} s before it spends credits (cancel under In progress on the review page)`;
+  const s = $('#send'); s.disabled = sending || !picked.length;
+  s.textContent = picked.length ? `Send ${picked.length} as tasks` : 'Send';
+}
+
+$('#send').addEventListener('click', async () => {
+  const picked = items.filter(it => it.pick && it.state === 'ok' && !it.data.problem);
+  if (!picked.length || sending) return;
+  const cost = picked.reduce((s, it) => s + (it.data.paid ? it.data.cost : 0), 0);
+  if (!confirm(`Send ${picked.length} product(s) to "${vendor() || 'Other'}"? Up to ${fmt(cost)} credits. Photos are downloaded now; each run starts after the undo window.`)) return;
+  sending = true; totals(); $('#sendmsg').textContent = 'Sending…';
+  let run;
+  try { run = await api('POST', '/api/links/send', { items: picked.map(it => ({ url: it.url, row: rowOf(it) })), vendor: vendor(), folder: $('#folder').value, regenerate: $('#regen').checked }); }
+  catch (e) { sending = false; totals(); $('#sendmsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; return; }
+  $('#runpanel').hidden = false; poll(run.id, picked);
+});
+
+async function poll(id, picked) {
+  let r; try { r = await api('GET', '/api/links/run?id=' + encodeURIComponent(id)); } catch (e) { setTimeout(() => poll(id, picked), 3000); return; }
+  $('#runlist').innerHTML = r.results.map(x => `<li><b>${esc(x.asset || x.url)}</b><span class="${x.status === 'queued' ? 'ok' : x.status === 'error' ? 'err' : 'st'}">${esc(x.status)}</span>${x.cost ? `<span>${fmt(x.cost)} cr</span>` : ''}<span class="st">${esc(x.reason)}</span></li>`).join('');
+  $('#runmsg').innerHTML = `${r.results.length} of ${r.total} done` + (r.finished ? '.' : ' (downloading the photos)…') +
+    (r.result_csv ? ` Results: <code>${esc(r.result_csv)}</code>.` : '') + (r.sheet_csv ? ` Sheet CSV: <code>${esc(r.sheet_csv)}</code>.` : '') +
+    (r.error ? ` <span class="err">${esc(r.error)}</span>` : '') + (r.finished ? ' Progress is on the <a href="/">review page</a> under In progress.' : '');
+  for (const x of r.results) {
+    const it = picked.find(p => p.url === x.url);
+    if (it && x.status === 'queued' && it.state !== 'sent') { it.state = 'sent'; it.pick = false; it.sent = `${x.asset}, ${x.cost} credits`; derived(it); it.el.classList.add('sent'); }
+  }
+  if (!r.finished) { setTimeout(() => poll(id, picked), 1500); return; }
+  sending = false; $('#sendmsg').textContent = ''; await refreshStatus();
+}
+
+boot();
+</script>
+</body></html>

@@ -1,6 +1,6 @@
 # Tripo GLB post-processing (Blender 4.2, headless).
 # Usage (inside Blender python): argv = [..., "--", in_glb, out_glb, json_config]
-# config: {"category": "bed"|"other", "dims_in": [W, D, H] or null, "bed_size": "eastern king" | null}
+# config: {"category": "bed"|"lamp"|"rug"|"bedding"|"other", "dims_in": [W, D, H] or null, "bed_size": "eastern king" | null}
 import bpy, bmesh, sys, math, json, mathutils
 import numpy as np
 from mathutils.bvhtree import BVHTree
@@ -22,6 +22,8 @@ def log(k, v): report[k] = v; print("PP", k, v)
 MATTRESS_IN = {"twin": (38, 75), "twin xl": (38, 80), "full": (54, 75), "queen": (60, 80), "king": (76, 80),
                "eastern king": (76, 80), "cal king": (72, 84), "california king": (72, 84)}
 CM = 2.54
+# step 1c, as shares of the model: touching gap, max surface share, max size, min overhang past the rest's outline
+FLOAT_TOUCH, FLOAT_AREA, FLOAT_SIZE, FLOAT_OUT = 0.005, 0.02, 0.25, 0.02
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=in_glb)
@@ -88,6 +90,59 @@ if cfg.get("category") == "lamp" and 'cord' not in SKIP:
         bmesh.ops.delete(_b, geom=_vs, context='VERTS'); _b.to_mesh(me); me.update()
     log("lamp_cord_removed", {"vertices": len(set(_kill)), "pieces": sum(1 for g, mn_, mx_ in _pieces if g[0] in set(_kill))})
     _b.free()
+# 1c) floating pieces (Mukul 2026-10-29: "anything which is just arbitrary suspended in air should be removed"). Tripo
+#     sometimes adds a small part that touches nothing, e.g. a hook hanging 0.8 cm behind rowan_nightstand's back panel.
+#     Faces are joined by vertex POSITION (Tripo splits at UV seams), and pieces whose surfaces come within 0.5% of the
+#     model's diagonal count as touching (the rowan hook is 0.75% off the back). A group of touching pieces is held up when
+#     it reaches the floor or is the largest group. One that is neither, is small (under 2% of the surface, under a
+#     quarter of the model's size) AND sticks out at least 2% of the diagonal past the outline of the rest of the model is
+#     removed. The overhang test is what keeps real parts: Tripo's drawer and ring pulls float too (hayes_dresser's 0.7%
+#     off the fronts, priscilla's over 1%) but stay within ~1% of the outline, plant leaves and the hidden inner scraps of
+#     Meshy models stay inside it, and the rowan hook sticks out 4% behind the back (survey of all 178 card versions,
+#     2026-10-29). Done before sizing, so it doesn't count towards the dims. Not for lamps (shades, finials and crystals
+#     hang by design) or rugs. SPEC section 40.
+if cfg.get("category") not in ("lamp", "rug") and 'floating' not in SKIP:
+    _b = bmesh.new(); _b.from_mesh(me); _b.verts.ensure_lookup_table(); _b.faces.ensure_lookup_table()
+    _co = np.array([v.co[:] for v in _b.verts]); _lo, _hi = _co.min(0), _co.max(0); _dg = float(np.linalg.norm(_hi - _lo))
+    _tol = FLOAT_TOUCH * _dg; _q = 1e-4 * _dg
+    _parent = list(range(len(_b.faces)))
+    def _f(a):
+        while _parent[a] != a: _parent[a] = _parent[_parent[a]]; a = _parent[a]
+        return a
+    _own = {}
+    for f in _b.faces:                                   # same position = same piece
+        for v in f.verts:
+            k = tuple(np.round(_co[v.index] / _q).astype(np.int64))
+            if k in _own: _parent[_f(_own[k])] = _f(f.index)
+            else: _own[k] = f.index
+    _tree = BVHTree.FromBMesh(_b)
+    for v in _b.verts:                                   # within _tol of another piece's surface = touching
+        if not v.link_faces: continue
+        _a = _f(v.link_faces[0].index)
+        for _h in _tree.find_nearest_range(v.co, _tol):
+            _r = _f(_h[2])
+            if _r != _a: _parent[_r] = _a
+    _g = {}
+    for f in _b.faces: _g.setdefault(_f(f.index), []).append(f)
+    _ar = {r: sum(f.calc_area() for f in fs) for r, fs in _g.items()}; _tot = sum(_ar.values()) or 1.0; _big = max(_ar, key=_ar.get)
+    _loose = {}
+    for r, fs in _g.items():
+        p = np.array([v.co[:] for f in fs for v in f.verts]); lo, hi = p.min(0), p.max(0)
+        if r == _big or lo[2] - _lo[2] <= _tol or _ar[r] >= FLOAT_AREA * _tot or np.linalg.norm(hi - lo) >= FLOAT_SIZE * _dg: continue
+        _loose[r] = (lo, hi)
+    _rest = np.array([v.co[:] for r, fs in _g.items() if r not in _loose for f in fs for v in f.verts])
+    _rlo, _rhi = _rest.min(0), _rest.max(0)
+    _kill, _where = [], []
+    for r, (lo, hi) in _loose.items():
+        o = np.concatenate([_rlo - lo, hi - _rhi])                     # overhang past each side: -X -Y -Z +X +Y +Z
+        if o.max() < FLOAT_OUT * _dg: continue
+        _where.append(("side", "back", "underneath", "side", "front", "top")[int(o.argmax())])   # for the card: +Y is the front
+        _kill += _g[r]
+    log("floating_removed", {"pieces": len(_where), "faces": len(_kill), "where": _where,
+                             "area_pct": round(100 * sum(f.calc_area() for f in _kill) / _tot, 3)})
+    if _kill:                                            # 'FACES' also drops the edges and vertices left unused
+        bmesh.ops.delete(_b, geom=_kill, context='FACES'); _b.to_mesh(me); me.update()
+    _b.free()
 # 2) pivot: centre X/Y, floor at Z=0
 mn, mx = bounds(); me.transform(mathutils.Matrix.Translation((-(mn[0]+mx[0])/2, -(mn[1]+mx[1])/2, -mn[2])))
 # 3) scale to listed dims, 1 unit = 1 cm (per axis)
@@ -123,6 +178,38 @@ if cfg.get("stretch_to_in") and 'scale' not in SKIP:
     me.vertices.foreach_set("co", co.ravel()); me.update(); log("size_stretch", st_rep)
 mn, mx = bounds(); diag = float(np.linalg.norm(mx - mn))
 log("dims_cm", [round(float(v), 1) for v in (mx - mn)])
+# 3c) Sheets and Blankets (SPA-883): the origin goes on the REST PLANE, the underside of the top layer that lies on the
+#     mattress, not on the hem of the drape. The web app puts an item's origin on the surface it lands on, so a duvet
+#     whose origin is at its lowest point floats by the drape's depth (the ~10 cm reported on the bed). Rays go down
+#     over the middle half of the footprint (the drape hangs at the edges); each one walks through the layers below
+#     its first hit, and the lowest hit within BEDDING_LAYER_MAX_CM of that top is the underside there (a folded throw
+#     has several layers, all of them resting on the bed). The median over the grid is the rest plane. A model with no
+#     hit there (a shape the rays miss) keeps its bottom at Z=0. Only Z moves: X/Y stay centred, the dims don't change.
+BEDDING_LAYER_MAX_CM, BEDDING_GRID = 20.0, 9
+if cfg.get("category") == "bedding" and 'pivot' not in SKIP:
+    _b = bmesh.new(); _b.from_mesh(me); _tree = BVHTree.FromBMesh(_b)
+    _down, _top = mathutils.Vector((0, 0, -1)), float(mx[2])
+    _rest = []
+    for _u in np.linspace(0.25, 0.75, BEDDING_GRID):
+        for _v in np.linspace(0.25, 0.75, BEDDING_GRID):
+            _o = mathutils.Vector((mn[0] + _u * (mx[0] - mn[0]), mn[1] + _v * (mx[1] - mn[1]), _top + 1.0))
+            _hit, _, _, _ = _tree.ray_cast(_o, _down)
+            if _hit is None: continue
+            _first, _low = _hit.z, _hit.z
+            while True:                                  # the layers under this point, as far as the layer limit
+                _hit, _, _, _ = _tree.ray_cast(mathutils.Vector((_o.x, _o.y, _low - 0.05)), _down)
+                if _hit is None or _first - _hit.z > BEDDING_LAYER_MAX_CM: break
+                _low = _hit.z
+            _rest.append(_low)
+    _b.free()
+    if _rest:
+        _z = float(np.median(_rest))
+        me.transform(mathutils.Matrix.Translation((0, 0, -_z))); me.update()
+        log("bedding_rest_plane", {"rest_cm": round(_z, 1), "drape_below_cm": round(_z - float(mn[2]), 1),
+                                   "rays_hit": len(_rest), "rays": BEDDING_GRID ** 2})
+        mn, mx = bounds()
+    else:
+        log("bedding_rest_plane", {"rest_cm": 0.0, "note": "no ray hit the middle of the footprint: origin left at the bottom"})
 
 if STEPS['repair']:
     # 4) clean-up: tiny disconnected pieces. Tripo meshes are split at UV seams, so connectivity is by vertex POSITION.

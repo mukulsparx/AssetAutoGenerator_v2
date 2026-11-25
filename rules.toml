@@ -1,17 +1,20 @@
 # Generation rules. This file travels with the package: edit it here and every machine uses the same rules.
 # Categories are checked top to bottom; the first one whose `match` pattern appears in the product title or
 # breadcrumb (and none of its `exclude` patterns) wins. Patterns are regular expressions, matched lowercase.
-# quads: quad budget. Tripo gets face_limit = 2 x quads (a ceiling). Meshy gets the quads as an exact target.
-# mode: since 2026-10-06 every category runs on Tripo P2 (max 25,000 quads = 50,000 triangles); the per-category
-#       mode below ("hd", "smart", "rule") is kept for reference only and no longer changes the model.
+# quads: quad budget. Tripo H3.1 gets face_limit = quads (quad=true: Tripo counts quads and lands about 2-8% over).
+#        Meshy gets the quads as an exact target.
+# mode: since 2026-11-25 every category runs on Tripo HD (H3.1, quad, detailed PBR texture in the same task); the
+#       per-category mode below ("hd", "smart", "rule") is kept for reference only and no longer changes the model.
 # builder: "tripo" (AI generation, Meshy as the fallback), "rug" or "art" (built in Blender, no credits).
 
 [modes]
-# 2026-10-06 (Mukul): Tripo P2 only, every category; the texture is made in a separate step (config.toml [tripo]).
-# "hd" and "smart" stay as names for cards and jobs made before, and now also run on P2.
-p2 = { label = "P2 (Smart Mesh)", model_version = "P2-20260801", max_quads = 25000 }
-hd = { label = "P2 (Smart Mesh)", model_version = "P2-20260801", max_quads = 25000 }
-smart = { label = "P2 (Smart Mesh)", model_version = "P2-20260801", max_quads = 25000 }
+# 2026-11-25 (Mukul): Tripo HD (H3.1) only, every category. This is what the artists use on the Tripo website: HD,
+# Quad, 4K PBR, from one 3/4 photo. The texture comes in the same task, so there is no separate texture step.
+# "p2", "hd" and "smart" stay as names for cards and jobs made before; all three run on H3.1.
+# (2026-10-06 to 2026-11-25 these ran on P2-20260801 with a separate texture step.)
+p2 = { label = "HD (H3.1)", model_version = "v3.1-20260211", max_quads = 25000 }
+hd = { label = "HD (H3.1)", model_version = "v3.1-20260211", max_quads = 25000 }
+smart = { label = "HD (H3.1)", model_version = "v3.1-20260211", max_quads = 25000 }
 meshy = { label = "Meshy 7.1", model = "meshy-7.1", max_quads = 12000, max_photos = 4 }
 
 [rule_keywords]
@@ -66,6 +69,24 @@ builder = "art"
 quads = 6
 photo = ["signature"]
 
+# Sheets and Blankets (SPA-883): duvets, comforters, quilts, coverlets, bedspreads and throw blankets, made as they lie
+# on a bed. postprocess.py step 3c puts the origin on the REST PLANE, the underside of the top layer, not on the hem of
+# the drape, so the web app sets the origin on the mattress top and the drape hangs past it. Before "pillow", whose
+# "throw" and "blanket" patterns would take these; "throw pillow" still goes to pillow (exclude).
+[[category]]
+key = "bedding"
+label = "Sheets and Blankets (origin on the rest plane: sits on the mattress top)"
+match = ["duvet", "comforter", "\\bquilts?\\b", "coverlet", "bedspread", "\\bblankets?\\b", "\\bthrows?\\b", "sheet set", "\\bsheets\\b"]
+# Furniture named after blankets (blanket chest, blanket ladder) is not bedding: it keeps the category it had before.
+exclude = ["pillow", "cushion", "mattress", "\\bchests?\\b", "ladder", "\\bracks?\\b", "bench", "basket", "trunk", "hamper"]
+builder = "tripo"
+mode = "hd"
+quads = 2000
+postprocess = "bedding"
+photo = ["signature"]
+height_cm = [1, 120]
+length_cm = [40, 300]
+
 [[category]]
 key = "pillow"
 label = "Pillows / throws"
@@ -79,7 +100,7 @@ length_cm = [20, 260]
 
 [[category]]
 key = "office_chair"
-label = "Office chairs (always HD, 10,000 quads)"
+label = "Office chairs (10,000 quads)"
 match = ["office chair", "work chair", "desk chair", "executive (office )?chair", "task chair", "gaming chair"]
 builder = "tripo"
 mode = "hd"
@@ -90,7 +111,7 @@ length_cm = [45, 95]
 
 [[category]]
 key = "outdoor_daybed"
-label = "Outdoor daybed (treated as outdoor sofa: HD, 12,000 quads, own cushions)"
+label = "Outdoor daybed (treated as outdoor sofa, 12,000 quads, own cushions)"
 match = ["daybed"]
 builder = "tripo"
 mode = "hd"
@@ -101,7 +122,7 @@ length_cm = [150, 260]
 
 [[category]]
 key = "lamp"
-label = "Lamps (Smart Mesh, 3,000 quads, floor cord removed, sized by height)"
+label = "Lamps (3,000 quads, floor cord removed, sized by height)"
 match = ["\\blamps?\\b"]
 builder = "tripo"
 mode = "smart"
@@ -114,7 +135,7 @@ uniform_scale = true
 
 [[category]]
 key = "nightstand"
-label = "Nightstands (Smart Mesh, 2,500 quads)"
+label = "Nightstands (2,500 quads)"
 match = ["nightstand", "bedside table", "night stand"]
 builder = "tripo"
 mode = "smart"
@@ -124,7 +145,7 @@ length_cm = [30, 95]
 
 [[category]]
 key = "bed"
-label = "Beds (Smart Mesh, 10,000 quads, 12\" mattress added only to an empty frame)"
+label = "Beds (10,000 quads, 12\" mattress added only to an empty frame)"
 match = ["\\bbeds?\\b", "headboard", "platform bed", "bed frame"]
 exclude = ["bedroom", "bedside", "sofa bed", "bed bench"]
 builder = "tripo"
@@ -138,7 +159,7 @@ length_cm = [180, 260]
 
 [[category]]
 key = "sectional"
-label = "Sectionals (HD, 12,000 quads)"
+label = "Sectionals (12,000 quads)"
 match = ["sectional", "l-shaped"]
 builder = "tripo"
 mode = "rule"
@@ -149,7 +170,7 @@ length_cm = [150, 520]
 
 [[category]]
 key = "loveseat"
-label = "Loveseats (HD, 6,000 quads)"
+label = "Loveseats (6,000 quads)"
 match = ["loveseat"]
 builder = "tripo"
 mode = "rule"
@@ -160,7 +181,7 @@ length_cm = [110, 210]
 
 [[category]]
 key = "sofa"
-label = "Sofas (HD, 12,000 quads)"
+label = "Sofas (12,000 quads)"
 match = ["\\bsofas?\\b", "\\bcouch\\b", "sleeper"]
 builder = "tripo"
 mode = "rule"
@@ -171,38 +192,38 @@ length_cm = [140, 340]
 
 [[category]]
 key = "dining_chair"
-label = "Dining chairs / stools (Smart Mesh, 2,000 quads)"
+label = "Dining chairs / stools (5,000 quads)"
 match = ["dining (arm )?chair", "side chair", "counter stool", "bar stool", "\\bstool\\b"]
 builder = "tripo"
 mode = "smart"
-quads = 2000
+quads = 5000                     # 2,000 until 2026-11-25
 height_cm = [60, 130]
 length_cm = [35, 80]
 
 [[category]]
 key = "accent_chair"
-label = "Accent chairs (3,500 quads)"
+label = "Accent chairs (5,000 quads)"
 match = ["accent chair", "armchair", "\\bchairs?\\b", "recliner", "glider", "swivel"]
 builder = "tripo"
 mode = "rule"
 rule_default = "hd"
-quads = 3500
+quads = 5000                     # 3,500 until 2026-11-25
 height_cm = [55, 130]
 length_cm = [50, 130]
 
 [[category]]
 key = "dining_table"
-label = "Dining tables / desks (Smart Mesh, 2,000 quads)"
+label = "Dining tables / desks (4,000 quads)"
 match = ["dining table", "kitchen table", "\\bdesk\\b", "writing desk"]
 builder = "tripo"
 mode = "smart"
-quads = 2000
+quads = 4000                     # 2,000 until 2026-11-25
 height_cm = [65, 110]
 length_cm = [60, 400]
 
 [[category]]
 key = "cabinet"
-label = "Cabinets / storage (Smart Mesh, 2,500 quads, closed back)"
+label = "Cabinets / storage (2,500 quads, closed back)"
 match = ["cabinet", "hutch", "lateral file", "file cabinet", "bookcase", "bookshelf", "etagere", "dresser", "\\bchest\\b",
          "tv stand", "media console", "sideboard", "buffet", "credenza", "console", "armoire", "wardrobe"]
 builder = "tripo"
@@ -214,17 +235,17 @@ length_cm = [30, 520]
 
 [[category]]
 key = "small_table"
-label = "Coffee / side / end tables, ottomans, benches (Smart Mesh, 1,500 quads)"
+label = "Coffee / side / end tables, ottomans, benches (4,000 quads)"
 match = ["coffee table", "side table", "end table", "accent table", "ottoman", "\\bbench\\b", "\\bpouf\\b", "cocktail table"]
 builder = "tripo"
 mode = "smart"
-quads = 1500
+quads = 4000                     # 1,500 until 2026-11-25
 height_cm = [20, 80]
 length_cm = [30, 250]
 
 [[category]]
 key = "other"
-label = "Other (Smart Mesh, 2,500 quads)"
+label = "Other (2,500 quads)"
 match = [".*"]
 builder = "tripo"
 mode = "smart"

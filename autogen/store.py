@@ -6,10 +6,13 @@ assets/<vendor>/<name>/       one folder per vendor: CORT, Living Spaces, Other,
   source_images/             product photos
   rows/<row_id>.json         one review card (a generated version), e.g. <name>-v2
   decisions/<row_id>.json    the reviewer's decision on that card
-  jobs/<job_id>.json         work to do (generate, finalize); <job_id>.claim while a machine runs it
+  jobs/<job_id>.json         work to do (generate, finalize), run only by the PC that queued it ("owner", else
+                             "created_by"); <job_id>.claim while that PC runs it
   work/<row_id>/             raw and processed GLBs, masks and reports of that card
   final_glb/<name>.glb       accepted model
-assets/_runner/credits/<date>.jsonl   credit ledger shared by all machines
+  _conflicts/                Drive's duplicate copies of rows/decisions/jobs files ("<id> (1).json"), out of the app
+assets/_runner/credits/<date>.<machine>.jsonl   credit ledger, one file per PC; the daily cap counts them all
+assets/_runner/machines/<machine>.json   when each PC's review page was last open
 """
 import json, os, re, time, uuid, datetime, shutil, threading
 from pathlib import Path
@@ -48,6 +51,11 @@ def vendor_folder(vendor) -> str:
 
 
 def _is_asset(d: Path) -> bool: return (d / "meta.json").exists() or (d / "rows").is_dir()
+
+
+def pc_name(machine) -> str:
+    """'LAPTOP-C6K7CN5D' for the machine id 'LAPTOP-C6K7CN5D-5291e5' (config.machine adds 6 hex digits)."""
+    return re.sub(r"-[0-9a-f]{6}$", "", machine or "") or "another PC"
 
 
 class Store:
@@ -127,15 +135,41 @@ class Store:
             else: os.replace(f, t.with_name(f"{t.stem} (from {src.parent.name}){t.suffix}"))
         src.rmdir()
 
+    TIDY_DIRS = ("work", "rows", "jobs", "jobs_v2", "decisions", "source_images", "final_glb", "thumbnail")
+    RECORD_DIRS = ("rows", "decisions", "jobs", "jobs_v2")         # every .json in them is a card, decision or job
+
     def _tidy(self, d: Path) -> list[str]:
         """Google Drive shows two folders with the same name (made at the same moment by two machines or two runs) as
-        'work' and 'work (1)'. Merge such pairs inside a product folder."""
+        'work' and 'work (1)'. Merge such pairs inside a product folder; a 'work (1)' with no 'work' beside it is
+        renamed to 'work' (2026-10-29: the two Aberdeen pieces had only 'work (1)' and 'final_glb (1)', so their cards'
+        links were broken and the page left them out). Two PCs saving the same card at once leave 'rows/<id> (1).json'
+        too, which the page showed as a second card: such a copy (and a '(from ...)' one an earlier merge left) moves
+        to <product>/_conflicts/, never deleted; a copy with no plain file beside it becomes the plain file."""
         out = []
-        for x in list(d.iterdir()):
-            m = re.fullmatch(r"(.+) \((\d+)\)", x.name)
-            if x.is_dir() and m and (d / m.group(1)).is_dir() and m.group(1) in ("work", "rows", "jobs", "jobs_v2", "decisions", "source_images", "final_glb"):
-                try: self._merge_into(x, d / m.group(1)); out.append(f"{d.name}: merged '{x.name}' into '{m.group(1)}'")
-                except OSError as e: print(f"NOTE: could not merge {d.name}/{x.name}: {e}")
+        def dups(folder, files, pat=r"(.+) \((\d+)\)"):
+            """[(entry, its plain name)] of folder's '<name> (N)' entries, lowest N first (the one renamed)."""
+            found = []
+            for x in folder.iterdir() if folder.is_dir() else []:
+                m = re.fullmatch(pat, x.stem if files else x.name) if x.is_file() == files else None
+                if m: found.append((int(m.group(2)) if m.group(2).isdigit() else 0, x.name, x, m.group(1) + (x.suffix if files else "")))
+            return [(x, plain) for *_, x, plain in sorted(found)]
+        for x, plain in dups(d, files=False):
+            if plain not in self.TIDY_DIRS: continue
+            try:
+                if (d / plain).is_dir(): self._merge_into(x, d / plain); out.append(f"{d.name}: merged '{x.name}' into '{plain}'")
+                else: os.rename(x, d / plain); out.append(f"{d.name}: renamed '{x.name}' to '{plain}'")
+            except OSError as e: print(f"NOTE: could not tidy {d.name}/{x.name}: {e}")
+        for sub in self.RECORD_DIRS:
+            for x, plain in dups(d / sub, files=True, pat=r"(.+) \((\d+|from [^)]*)\)"):
+                if x.suffix != ".json": continue
+                try:
+                    if (d / sub / plain).exists():
+                        t = d / "_conflicts" / sub / x.name
+                        if t.exists(): t = t.with_name(f"{t.stem} {uuid.uuid4().hex[:4]}{t.suffix}")
+                        t.parent.mkdir(parents=True, exist_ok=True); os.replace(x, t)
+                        out.append(f"{d.name}: moved the duplicate {sub}/{x.name} to _conflicts")
+                    else: os.rename(x, d / sub / plain); out.append(f"{d.name}: renamed {sub}/{x.name} to {plain}")
+                except OSError as e: print(f"NOTE: could not tidy {d.name}/{sub}/{x.name}: {e}")
         return out
 
     def organize(self) -> list[str]:
@@ -295,19 +329,50 @@ class Store:
     def release(self, job):
         self.job_path(job).with_suffix(".claim").unlink(missing_ok=True)
 
+    # ---------- which PC runs a job (2026-10-29) ----------
+    # Every PC with the review page open runs a worker, and Drive syncs a claim file too slowly to keep two PCs off one
+    # job: on 2026-10-28 both PCs ran charleston v1 and the two Aberdeen pieces, Tripo was paid twice, and Drive's
+    # 'work (1)' copies broke the cards. So a job runs only on the PC that queued it (its owner); "Run here" on another
+    # PC's page (Worker.take) moves it when that PC is closed. A job from before has no created_by and runs anywhere.
+    @staticmethod
+    def owner(job) -> str: return job.get("owner") or job.get("created_by") or ""
+
+    def mine(self, job) -> bool:
+        o = self.owner(job); return not o or o == self.machine
+
+    SEEN_S = 30                                   # how often the worker marks this PC as open
+    OPEN_S = 180                                  # seen this recently: that PC's page is open (Drive takes a while)
+
+    def seen(self, paused=False):
+        write_json(self.root / "_runner" / "machines" / f"{self.machine}.json", {"machine": self.machine, "at": time.time(), "paused": bool(paused)})
+
+    def machines(self) -> dict:
+        """{machine: {"at": epoch seconds, "paused": bool}} for every PC whose review page has been open."""
+        d = self.root / "_runner" / "machines"
+        return {f.stem: v for f in d.glob("*.json") if (v := read_json(f))} if d.is_dir() else {}
+
+    def is_open(self, machine) -> bool:
+        """That PC's page is open and its worker isn't paused, so it will run its jobs itself."""
+        v = self.machines().get(machine) or {}
+        return time.time() - float(v.get("at") or 0) < self.OPEN_S and not v.get("paused")
+
     # ---------- credits ----------
+    # One ledger file per PC and day (2026-10-29): two PCs appending to one shared file at the same moment lost lines
+    # through Drive sync (two Tripo runs on 2026-10-28 are missing), so the daily cap counted too little. The cap
+    # still counts every PC: all of the day's files, the old shared one and Drive's '(1)' copies included, a line
+    # that is in two of them counted once.
     def credits_today(self) -> int:
-        f = self.root / "_runner" / "credits" / f"{datetime.date.today().isoformat()}.jsonl"
-        tot = 0
-        try:
-            for ln in f.read_text(encoding="utf-8").splitlines():
-                try: tot += int(json.loads(ln).get("credits", 0))
-                except ValueError: pass
-        except OSError: pass
+        day = datetime.date.today().isoformat(); tot = 0; lines = set()
+        for f in (self.root / "_runner" / "credits").glob(f"{day}*.jsonl"):
+            try: lines.update(ln.strip() for ln in f.read_text(encoding="utf-8").splitlines() if ln.strip())
+            except OSError: pass
+        for ln in lines:
+            try: tot += int(json.loads(ln).get("credits", 0))
+            except (ValueError, AttributeError): pass
         return tot
 
     def spend(self, asset, service, credits, task_id=""):
-        f = self.root / "_runner" / "credits" / f"{datetime.date.today().isoformat()}.jsonl"
+        f = self.root / "_runner" / "credits" / f"{datetime.date.today().isoformat()}.{self.machine}.jsonl"
         with _lock, open(f, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"at": now_iso(), "machine": self.machine, "asset": asset, "service": service,
                                  "credits": int(credits), "task_id": task_id}) + "\n")
@@ -320,5 +385,8 @@ class Store:
         return Path(path).resolve().relative_to(self.adir(asset)).as_posix()
 
     def copy_final(self, asset, src, name=None) -> Path:
+        """The accepted model, built in centimetres, copied to final_glb/ and turned into metres there (the glTF
+        standard; Mukul 2026-11-04, see glbinfo). The work file it came from stays in cm, like every work file."""
+        from . import glbinfo
         dst = self.adir(asset) / "final_glb" / f"{name or asset}.glb"; dst.parent.mkdir(exist_ok=True)
-        shutil.copyfile(src, dst); return dst
+        shutil.copyfile(src, dst); glbinfo.to_metres(dst); return dst

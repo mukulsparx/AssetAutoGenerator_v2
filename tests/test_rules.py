@@ -42,6 +42,21 @@ class Rules(unittest.TestCase):
         self.assertEqual(self.cat("Fen Nightstand"), "nightstand")
         self.assertEqual(self.cat("Kona Coffee Table"), "small_table")
 
+    def test_bedding(self):
+        # SPA-883: Sheets and Blankets get the rest-plane pivot (postprocess.py 3c); pillows and beds keep theirs
+        for t in ("Avery White Queen Duvet Cover Set", "Harlow King Comforter For Bed", "Sage Cotton Quilt",
+                  "Chunky Knit Throw Blanket", "Linen Sheet Set Queen"):
+            self.assertEqual(self.cat(t), "bedding", t)
+        self.assertEqual(self.cat("Velvet Throw Pillow"), "pillow")
+        for t in ("Cedar Blanket Chest", "Rustic Blanket Ladder", "Iron Blanket Rack", "Woven Blanket Basket",
+                  "Upholstered Blanket Bench", "Oak Blanket Trunk", "Wicker Blanket Hamper"):
+            self.assertNotEqual(self.cat(t), "bedding", t)
+        self.assertEqual(self.cat("Deliah King Natural Wood Upholstered Fabric Platform Bed"), "bed")
+        self.assertEqual(self.cat("Cloud 12\" Hybrid Mattress", "Bedroom > Mattresses & Bedding"), self.cat("Cloud 12\" Hybrid Mattress"))
+        p = R.plan({"title": "Avery White Queen Duvet Cover Set", "photos": [{"file": "d_duvet_signature_01.jpg"}], "dims_in": [90, 92, 12]}, RU)
+        self.assertEqual(p["postprocess"]["category"], "bedding")
+        self.assertIsNone(R.size_check("bedding", [90, 92, 12], "in", RU))
+
     def test_modes_and_budgets(self):
         p = R.plan({"title": "Branson Black Leather Executive Office Chair", "photos": [{"file": "350910_black_leather_executive_office_chair_signature_91623.jpg"},
                    {"file": "350910_black_leather_office_chair_back_82.jpg"}, {"file": "350910_black_leather_office_chair_detail_45.jpg"}], "dims_in": [28, 29.75, 46.75]}, RU)

@@ -27,6 +27,7 @@ class Manifest(unittest.TestCase):
 
     def test_other_csv_is_used_and_result_csv_ignored(self):
         (self.root / "batch_result.csv").write_text("folder,asset,status\nx,y,queued\n", encoding="utf-8")
+        (self.root / "assets_living_spaces_2026-10-28.csv").write_text("Thumbnail,File name\n,x_adw\n", encoding="utf-8")   # the sheet CSV a run leaves behind
         (self.root / "products.csv").write_text("name,width_cm,depth_cm,height_cm\nKona Coffee Table,120,60,45\n", encoding="utf-8")
         m = B.read_manifest(self.root)
         self.assertEqual(list(m), ["kona coffee table"])
@@ -78,6 +79,7 @@ class Folders(unittest.TestCase):
         (self.root / "Empty Folder").mkdir()
         (self.root / "Notes Only").mkdir(); (self.root / "Notes Only" / "note.txt").write_text("x")
         self.photo(self.root / "_deleted" / "Old Chair"); self.photo(self.root / ".cache")     # skipped
+        self.photo(self.root / "thumbnails", "x_adw.jpg"); (self.root / "glb").mkdir()       # what approval wrote: not products
         (self.root / "batch.csv").write_text("folder\n", encoding="utf-8")
         got = [(f.name, p.relative_to(self.root).as_posix()) for f, p in B.product_folders(self.root)]
         self.assertEqual(got, [("Alby Accent Chair 29x30.5x31 in", "Alby Accent Chair 29x30.5x31 in"),
@@ -85,6 +87,8 @@ class Folders(unittest.TestCase):
 
     def test_single_product_root(self):
         self.photo(self.root, "front.jpg"); self.photo(self.root, "back.jpg"); (self.root / "Files").mkdir()
+        self.assertEqual(B.product_folders(self.root), [(self.root, self.root)])
+        self.photo(self.root / "thumbnails", "x_adw.jpg")                               # a rerun after approval
         self.assertEqual(B.product_folders(self.root), [(self.root, self.root)])
 
     def test_single_product_in_connecter_layout(self):

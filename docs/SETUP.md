@@ -71,6 +71,12 @@ If Windows shows "Windows protected your PC" for `Start.bat`, click **More info 
    - The title comes from the asset folder's name (`Sayl Work Chair`), the vendor is set to CORT, and the units switch to centimetres.
    - The accepted GLB is also copied into the folder that holds `Ref` (here `...\Sayl Work Chair\Files\sayl_work_chair.glb`). You can change or clear that path on the form.
    - Enter W × D × H, check the category and photos, then press **Generate**.
+5. **Adding many from their links (Raymour & Flanigan and other shops):** click **Add links** at the top of the review page.
+   - Paste the product links (any text with links in it works) or open a .txt file of them, check the vendor, and press **Load the links**. Every link becomes a card.
+   - On each card, check the size (inches; the cm are shown beside it, and the note says where on the page the size was read), the category and the photos. Click a photo to leave it out. The outlined photo is the main one sent to Tripo.
+   - Untick what shouldn't go. Cards with a problem (no size on the page, for example) stay unticked until you fix them. Products that already have a card are unticked and skipped unless **New version for products that already have a card** is ticked.
+   - Press **Send N as tasks**. The total credits are shown before you confirm. The session folder (`Desktop\<Vendor>_links_<date>` by default) gets `links_result.csv` and the sheet CSV, and later the approved GLBs and thumbnails.
+   - Living Spaces refuses these requests: add its products with the bookmark (step 3).
 
 ## Tripo model
 - Every product is made with **Tripo P2** (the Smart Mesh model the Tripo website uses), in two steps like the website: the mesh first, then the texture as its own step (Tripo's newest texture model, detailed quality). One Tripo run costs **120 credits** (100 + 20).
@@ -91,7 +97,12 @@ If Windows shows "Windows protected your PC" for `Start.bat`, click **More info 
 
 ## Two people at once
 
-Several PCs can run the app at the same time. Each job is claimed by one PC, so nothing is generated twice. If a PC is switched off in the middle of a job, another PC takes the job over after 20 minutes, and it continues the already-paid task instead of paying again. The daily credit cap (`daily_cap` in `config.toml`) counts all PCs together.
+Several PCs can run the app at the same time and all see the same cards. A job runs only on the PC that queued it, so nothing is generated twice. Keep the review page (`Start.bat`) open on that PC until its jobs are done.
+
+- On the other PCs the job shows under **In progress** as "Waiting for <PC>". When that PC's page is closed or paused (it shows as closed about 3 minutes after), the tile gets a **Run here** button that moves the job to this PC. Only press it when the other PC really is closed: if both run it, Tripo is paid twice.
+- **Try again** on a failed or stopped job runs it on the PC where you pressed it.
+- If a PC is switched off in the middle of a job, **Run here** on another PC continues the already-paid task instead of paying again.
+- The daily credit cap (`daily_cap` in `config.toml`) counts all PCs together.
 
 ## Where things are
 
@@ -100,7 +111,8 @@ Several PCs can run the app at the same time. Each job is claimed by one PC, so 
 | Accepted models | `assets\<vendor>\<name>\final_glb\<name>.glb`, e.g. `assets\CORT\greystone_credenza\final_glb\greystone_credenza.glb`. CORT models are also copied next to `Ref` in the CORT folder they were added from. |
 | Review versions, photos, decisions | `assets\<vendor>\<name>\` (`rows`, `work`, `source_images`, `decisions`) |
 | Vendor folders | `assets\CORT`, `assets\Living Spaces`, `assets\Other` (no vendor given), and one per new vendor: the name typed in **Vendor** on Add products, or the folder under `Assets\` when adding from a reference folder. Folders added before this are moved in when the app starts. |
-| Credits spent per day | `assets\_runner\credits\` |
+| Credits spent per day | `assets\_runner\credits\` (one file per PC and day) |
+| Copies Drive made when two PCs saved the same card | `assets\<vendor>\<name>\_conflicts\` (moved there at start-up, never deleted) |
 | Generation rules (budgets, modes, photo choice) | `AssetAutoGenerator\rules.toml` |
 | Settings (drive path, port, credit cap, undo time) | `AssetAutoGenerator\config.toml` |
 | Portable Blender, machine id | `%LOCALAPPDATA%\AssetAutoGenerator\` |

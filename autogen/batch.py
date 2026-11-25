@@ -1,7 +1,7 @@
 """Batch intake: queue a whole folder of products at once (Mukul, 2026-10-21: "generate 100s of assets automatically on a
 daily basis"). The web intake form adds one product at a time; this reads a folder tree and calls the same
-pipeline.add_product for each, so the jobs land in the shared store exactly as if typed in, and the worker of a running
-`python -m autogen serve` (on this PC or any other) picks them up.
+pipeline.add_product for each, so the jobs land in the shared store exactly as if typed in, and the worker of
+`python -m autogen serve` (Start.bat) on this PC runs them: a job runs only on the PC that queued it (2026-10-29).
 
     python -m autogen batch <folder> [--vendor V] [--unit in|cm] [--max N] [--dry-run] [--regenerate]
 
@@ -18,12 +18,16 @@ Spending guards (the same ones the review page has): the daily cap counts every 
 Tripo balance is read once before queuing; when either would run out the paid products after that point are left for
 tomorrow (procedural rugs and art cost nothing and are queued regardless). Nothing is queued twice: a product that
 already has a card is skipped unless --regenerate is given (then it gets a new version, like "Try again").
-A batch_result.csv is written into <folder> with one line per product (queued / skipped / error and why)."""
+A batch_result.csv is written into <folder> with one line per product (queued / skipped / error and why), and the run's
+sheet CSV assets_<vendor>_<date>.csv is created beside it straight away; each model's row is added when it is approved
+(sheet.session_csv / session_add)."""
 import csv, re
 from pathlib import Path
-from . import intake, pipeline, rules as R, clients
+from . import intake, pipeline, rules as R, clients, sheet
+from .vendor_export import SESSION_GLB, SESSION_THUMBS
 
 CM = 2.54
+SESSION_DIRS = (SESSION_GLB, SESSION_THUMBS)      # approval fills these in <folder> (vendor_export.deliver); they are not products
 IMG_EXT = intake.IMG_EXT
 # batch.csv header aliases -> field. Headers are lower-cased with non-alphanumerics turned into "_" before the lookup.
 ALIASES = {"folder": "folder", "name": "folder", "path": "folder", "product_folder": "folder",
@@ -46,8 +50,10 @@ def num(x):
 
 
 def read_manifest(root: Path) -> dict:
-    """{folder name (lower) -> fields} from batch.csv, else the first *.csv in the folder; {} when there is none."""
-    cands = [root / "batch.csv"] + sorted(p for p in root.glob("*.csv") if p.name.lower() not in ("batch.csv", "batch_result.csv"))
+    """{folder name (lower) -> fields} from batch.csv, else the first *.csv in the folder; {} when there is none.
+    The tool's own outputs (batch_result.csv, the sheet CSV assets_<vendor>_<date>.csv) are never read as a manifest."""
+    cands = [root / "batch.csv"] + sorted(p for p in root.glob("*.csv") if p.name.lower() not in ("batch.csv", "batch_result.csv")
+                                          and not p.name.lower().startswith("assets_"))
     out = {}
     for p in cands:
         if not p.is_file(): continue
@@ -94,7 +100,8 @@ def product_folders(root: Path) -> list:
         return None
     own = photos_in(root)
     # root's own photo folder (Files\Ref) is not a product of its own
-    subs = [d for d in sorted(root.iterdir()) if d.is_dir() and not d.name.startswith((".", "_")) and not (own is not None and (d == own or d in own.parents))]
+    subs = [d for d in sorted(root.iterdir()) if d.is_dir() and not d.name.startswith((".", "_")) and d.name.lower() not in SESSION_DIRS
+            and not (own is not None and (d == own or d in own.parents))]
     if own is not None and not any(photos_in(d) for d in subs): return [(root, own)]
     out = []
     for d in subs:
@@ -184,6 +191,7 @@ def main(cfg, store, argv) -> int:
         elif a.dry_run: row.update(status="would queue", reason=label); planned_cost += p["cost"]; queued += 1
         else:
             try:
+                p["overrides"]["deliver_dir"] = str(root.resolve())
                 res = queue(cfg, store, p); row.update(status="queued", job=res["job"], cost=res["cost"], reason=label); planned_cost += res["cost"]; queued += 1
             except Exception as e: row.update(status="error", reason=str(e)[:200])
         results.append(row)
@@ -202,5 +210,9 @@ def main(cfg, store, argv) -> int:
                 wr = csv.DictWriter(f, fieldnames=["folder", "asset", "status", "job", "cost", "reason"], lineterminator="\n"); wr.writeheader(); wr.writerows(results)
             print(f"Written: {out}")
         except OSError as e: print("NOTE: could not write batch_result.csv:", e)
-        if queued: print("The jobs start after the undo window and run on whichever PC has `python -m autogen serve` (Start.bat) open; review them on its page.")
+        try:
+            sc = sheet.session_csv(cfg, store, root, [r["asset"] for r in results if r["status"] == "queued"])
+            if sc: print(f"Sheet CSV: {sc}")
+        except OSError as e: print("NOTE: could not write the sheet CSV:", e)
+        if queued: print("The jobs start after the undo window and run on this PC while its review page (Start.bat) is open; another PC's page shows them as waiting for this one and can take them over with Run here.")
     return 0 if queued or a.dry_run else 1

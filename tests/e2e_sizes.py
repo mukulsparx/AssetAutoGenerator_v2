@@ -14,8 +14,10 @@ FIX, BLENDER = Path(sys.argv[1]), sys.argv[2]
 sys.path.insert(0, str(PKG)); from autogen import glbinfo
 PY = sys.executable
 tmp = Path(tempfile.mkdtemp(prefix="autogen_sizes_")); assets = tmp / "assets"; assets.mkdir(); vend = tmp / "cort_files"
+vendors = tmp / "vendors"; vendors.mkdir()      # approval copies here, never into the real Assets\<Vendor>\ on the drive
 (tmp / "cfg.toml").write_text('[credits]\nundo_seconds = 2\ndaily_cap = 1000\n[server]\nport = 8802\n[qa]\nenabled = false\n')
 env = {**os.environ, "AUTOGEN_ASSETS_DIR": str(assets), "AUTOGEN_BLENDER": BLENDER, "AUTOGEN_CONFIG": str(tmp / "cfg.toml"),
+       "AUTOGEN_VENDORS_DIR": str(vendors),
        "LOCALAPPDATA": str(tmp / "local"), "TRIPO_API_KEY": "test", "MESHY_API_KEY": "test", "GEMINI_API_KEY": "",
        "AUTOGEN_TRIPO_API": "http://127.0.0.1:9915/tripo", "AUTOGEN_MESHY_API": "http://127.0.0.1:9915/meshy", "PYTHONDONTWRITEBYTECODE": "1"}
 mock = subprocess.Popen([PY, str(PKG / "tests" / "mock_apis.py"), "9915", str(FIX / "tripo_raw.glb"), str(FIX / "meshy_raw.glb")])
@@ -69,11 +71,11 @@ try:
              {"suffix": "tall", "dims_in": [32, 22, 90], "own_design": True, "photo": one}]
     r = api("POST", "/api/intake", {"product": {"title": "Sz Lateral File Cabinet", "url": "", "vendor": "CORT", "dims_in": [32, 22, 78]},
                                     "overrides": {"name": "sz_cab", "units": 1, "close_back": False, "sizes": sizes}, "images": cab, "export_dir": str(vend)})
-    assert r.get("asset") == "sz_cab" and r["cost"] == 240 and len(r["size_jobs"]) == 1, r
+    assert r.get("asset") == "sz_cab" and r["cost"] == 90 and len(r["size_jobs"]) == 1, r
     meta = json.loads((assets / "CORT" / "sz_cab" / "meta.json").read_text())
     U = meta["uuid"]; Z = {z["suffix"]: z for z in meta["sizes"]}
     assert set(Z) == {"std", "wide", "narrow", "tall"} and Z["std"]["main"] and Z["std"]["dims_in"] == [32, 22, 78] and len({z["uuid"] for z in Z.values()} | {U}) == 5
-    ok.append("intake: 4 sizes saved (names cleaned: Wide -> wide), each with its own UUID; cost 120 + 120 for the own-design size")
+    ok.append("intake: 4 sizes saved (names cleaned: Wide -> wide), each with its own UUID; cost 45 + 45 for the own-design size")
     main = wait(lambda: rows().get("sz_cab-v1"), "main card")
     tall = wait(lambda: next((r for k, r in rows().items() if k.startswith("sz_cab_tall-")), None), "own-design card")
     assert main["uuid"] == U and tall["uuid"] == Z["tall"]["uuid"] and tall["size"] == "tall" and [round(x) for x in tall["dims_listed_cm"]] == [81, 56, 229], tall
@@ -90,7 +92,7 @@ try:
     assert "ends kept" in rep["size_stretch"]["x"], rep["size_stretch"]; ok.append(f"stretch: {rep['size_stretch']}")
     for s in ("std", "wide", "narrow"):
         want = U if s == "std" else Z[s]["uuid"]
-        assert glbinfo.info(fin / f"sz_cab_{s}.glb")["mesh_uuid"] == want and (vend / f"sz_cab_{s}.glb").exists()
+        assert glbinfo.info(fin / f"sz_cab_{s}.glb")["mesh_uuid"] == want and (vendors / "CORT" / "sz_cab" / f"sz_cab_{s}_adw.glb").exists()
     assert want in blender_name(fin / "sz_cab_narrow.glb")
     ok.append("B: each file named with its UUID (std = product, wide/narrow their own); Blender reads the rewritten files; all copied to the CORT folder")
     # Fix size on the accepted main card: the UUID stays

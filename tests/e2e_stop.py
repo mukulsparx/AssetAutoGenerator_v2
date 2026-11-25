@@ -12,9 +12,11 @@ PKG = Path(__file__).resolve().parent.parent
 FIX, BLENDER = Path(sys.argv[1]), sys.argv[2]
 PY = sys.executable
 tmp = Path(tempfile.mkdtemp(prefix="autogen_stop_")); assets = tmp / "assets"; assets.mkdir()
+vendors = tmp / "vendors"; vendors.mkdir()      # approval copies here, never into the real Assets\<Vendor>\ on the drive
 (tmp / "cfg.toml").write_text('[credits]\nundo_seconds = 3\ndaily_cap = 1000\n[server]\nport = 8804\n'
                               '[qa]\nauto = true\nrender_size = 192\nrender_samples = 1\n')
 env = {**os.environ, "AUTOGEN_ASSETS_DIR": str(assets), "AUTOGEN_BLENDER": BLENDER, "AUTOGEN_CONFIG": str(tmp / "cfg.toml"),
+       "AUTOGEN_VENDORS_DIR": str(vendors),
        "LOCALAPPDATA": str(tmp / "local"), "TRIPO_API_KEY": "test", "MESHY_API_KEY": "test", "GEMINI_API_KEY": "test",
        "AUTOGEN_TRIPO_API": "http://127.0.0.1:9914/tripo", "AUTOGEN_MESHY_API": "http://127.0.0.1:9914/meshy",
        "AUTOGEN_GEMINI_API": "http://127.0.0.1:9914/gemini", "PYTHONDONTWRITEBYTECODE": "1"}
@@ -53,7 +55,12 @@ def add(name):
     assert r.get("asset") == name, r
 
 
-def blenders(): return subprocess.run(["pgrep", "-f", "blender_scripts/postprocess.py"], capture_output=True, text=True).stdout.split()
+def blenders():
+    if os.name != "nt": return subprocess.run(["pgrep", "-f", "blender_scripts/postprocess.py"], capture_output=True, text=True).stdout.split()
+    # Windows has no pgrep; only this run's Blender (its temp folder is on the command line), not a real serve's on the same PC
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='blender.exe'\" | Where-Object { $_.CommandLine -like '*postprocess.py*' -and "
+          f"$_.CommandLine -like '*{tmp.name}*' }} | ForEach-Object {{ $_.ProcessId }}")
+    return subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True).stdout.split()
 
 
 ok = []
@@ -85,11 +92,11 @@ try:
     took = time.time() - t0; time.sleep(1)
     assert j["stopped_stage"] == "post-processing" and j["paid"] and not blenders(), (j, blenders())
     assert "stop_b-v1" not in rows(), "no card should exist yet"
-    led = api("GET", "/api/status")["credits_today"]; assert led == 120, led
+    led = api("GET", "/api/status")["credits_today"]; assert led == 45, led
     ok.append(f"stopped in Finishing: Blender killed in {took:.1f} s, paid download kept (ledger {led})")
     r = api("POST", f"/api/jobs/{j['id']}/retry", {}); assert r.get("ok"), r
     wait(lambda: rows().get("stop_b-v1"), "card after Finish it", 300)
-    assert api("GET", "/api/status")["credits_today"] == 120, "Finish it must not spend credits"
+    assert api("GET", "/api/status")["credits_today"] == 45, "Finish it must not spend credits"
     ok.append("Finish it: built from the kept download, no new credits")
 
     # --- 3: stop the QA
@@ -108,7 +115,7 @@ try:
     r = api("POST", "/api/rows/stop_b-v1/delete", {}); assert r.get("whole_product"), r
     assert "stop_b-v1" not in rows() and (assets / "_deleted" / "CORT" / "stop_b" / "rows" / "stop_b-v1.json").exists()
     assert json.loads((assets / "_deleted" / "CORT" / "stop_b" / "deleted.json").read_text())[0]["rows"] == "whole product"
-    assert not (assets / "CORT" / "stop_b").exists() and api("GET", "/api/status")["credits_today"] == 120
+    assert not (assets / "CORT" / "stop_b").exists() and api("GET", "/api/status")["credits_today"] == 45
     ok.append("Delete in Discarded: card gone, whole product folder in assets/_deleted/CORT (with a deleted.json note); ledger kept")
     print("PASS\n- " + "\n- ".join(ok))
 finally:

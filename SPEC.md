@@ -13,13 +13,13 @@ Automated pipeline that turns Living Spaces product pages into reviewed GLB furn
 | Generation | One-shot per asset (mesh + texture + PBR in one task). No mesh-review gate. |
 | Two modes | HD = H3 `v3.1-20260211`. Smart Mesh = P1 `P1-20260311`. |
 | Output | GLB only (no FBX, no quad remesh — "option B"). `face_limit` in triangles = 2 × quad budget. |
-| Units | Centimetres. Model scaled to the W×D×H listed on the product page. |
+| Units | The pipeline works in centimetres: the model is scaled to the W×D×H listed on the product page, 1 unit = 1 cm, and every work file (versions, rugs, art) stays cm. The **final GLB** (`final_glb/`, the vendor folder, the session folder) is written in **metres**, the glTF standard, stamped `asset.extras.units = "m"` (Mukul, 2026-11-04; `autogen/glbinfo.py` `to_metres`, run by `store.copy_final`). Sizes in rows, the sheet CSV, the Models sheet and the review page stay in cm. |
 | Naming | Cleaned product title, lowercase, spaces → `_`, quotes stripped, hyphens kept. Same name for folder and file. |
 | Beds | Generate from the bare-frame image. Delete everything inside the frame below the mattress (slats, planks, centre rails, middle support legs); keep only the outer frame (headboard, footboard, side rails, corner legs). Add a procedural 12-inch plain white mattress fitted into the frame opening. |
 | Pillows | Beds: never (no pillows). Sofas: use the product `side` shot (normally unstyled); QA catches exceptions. |
 | QA | Web page, 10 assets per page, Pass / Fail / Submit per asset, tri + quad counts, shaded / wireframe / clay+wireframe views matching the Sparx GLB Optimizer. |
 | Retry | Fail = new Tripo task with a new seed (full price; the API has no free retry). Old GLB deleted. New result appended at the end of the queue. |
-| Approved files | Moved into `final_glb/` inside the asset folder. |
+| Approved files | Copied into `final_glb/` inside the asset folder, converted to metres on the way (the work file stays cm). |
 | Reviewers | Single reviewer for now. |
 
 ## 2. Per-asset flow
@@ -32,7 +32,7 @@ Automated pipeline that turns Living Spaces product pages into reviewed GLB furn
 6. Poll `GET /task/{id}` every 10 s until `success` / `failed`. Respect the 3-parallel-task limit; back off on rate-limit errors.
 7. Download `output.pbr_model` (GLB). Post-process locally (§8): scale to cm and listed dimensions, add mattress for beds, write triangle count.
 8. Save `<name>.glb` + `meta.json` in the asset folder. Mark `status = review` and write the row back to the sheet.
-9. QA page shows it. Pass → move GLB to `final_glb/`, `status = approved`. Fail → delete GLB, requeue with new seed, `status = retry`.
+9. QA page shows it. Pass → copy GLB to `final_glb/` in metres, `status = approved`. Fail → delete GLB, requeue with new seed, `status = retry`.
 
 Every step is idempotent and resumable: the local SQLite database is the source of truth; restarting the app never re-spends credits on a task that already exists.
 
@@ -135,7 +135,7 @@ Not mapped: "Remove Lighting" has no API parameter; PBR output is expected to be
 Tripo returns three 2048 px maps (base colour, metal/roughness, normal), no AO. `face_limit` is a ceiling, not a target. Output files are served from `tripo-data.rg1.data.tripo3d.com` (now allowlisted); signed links expire in ~24 h but a fresh task lookup returns new ones.
 
 ### Rugs: procedural flat box (decided 2026-09-29)
-Tripo HD lost the rug pattern entirely (test 2026-09-29: plain white-fabric texture, rug modelled standing up). Rugs are built locally instead, costing no credits: `scripts/make_rug.py` finds the rug's edges against the studio background, crops the photo to them (rotating it if it is turned the other way from the listed size), resizes the long side to 1024 px, and puts it on the top of a box at the listed width × length, **1 cm tall**. The sides carry the rug's edge pixels. 12 triangles, single mesh with a UUID, cm units, front edge at glTF +Z. No AO (a flat slab has none to bake).
+Tripo HD lost the rug pattern entirely (test 2026-09-29: plain white-fabric texture, rug modelled standing up). Rugs are built locally instead, costing no credits: `scripts/make_rug.py` finds the rug's edges against the studio background, crops the photo to them (rotating it if it is turned the other way from the listed size), resizes the long side to 1024 px, and puts it on the top of a box at the listed width × length, **1 cm tall**. The sides carry the rug's edge pixels. 12 triangles, single mesh with a UUID, cm units in the work file (metres once accepted, like every final), front edge at glTF +Z. No AO (a flat slab has none to bake).
 Paintings and framed art: not the rug step as-is, since frames vary. Examples 2026-09-29 (thin gold frame, gallery-wrapped canvas, thin black frame) are straight-on photos with the frame inside the image, so the planned approach is an upright box at the listed W×H×depth with the photo on the front and the frame/canvas edge on the sides (to build next). Depths (decided 2026-09-29): **thin frame 2.5 cm, canvas 4 cm**.
 
 ## 9. QA page (localhost)
@@ -192,7 +192,7 @@ The bed test showed the Blender repair can make a model worse (legs faceted by t
 1. **Tripo version** (`<name>_tripo.glb`): Tripo's geometry and normals untouched, plus only the steps the output spec requires — face front (+Z), scale to listed cm with floor at 0, beds' interior removal + mattress, single mesh named with a UUID, textures capped at 1024 px, AO baked. No welding, capping, duplicate-layer removal, face flipping or re-smoothing.
 2. **Blender version** (`<name>_blender.glb`): the full repair pipeline (§8).
 
-Both are built for every asset (no credits, a few minutes of Blender time). The review card shows them as two tiles side by side with linked cameras and shared Shaded / Wireframe / Clay + wire modes. Choices: **Use Tripo version**, **Use Blender version**, or **Regenerate**, then Submit. The chosen file is copied into `final_glb/<name>.glb`. Regenerate preselects the same mode and quad budget with a new seed; the reviewer can switch HD / Smart Mesh and change the budget before submitting.
+Both are built for every asset (no credits, a few minutes of Blender time). The review card shows them as two tiles side by side with linked cameras and shared Shaded / Wireframe / Clay + wire modes. Choices: **Use Tripo version**, **Use Blender version**, or **Regenerate**, then Submit. The chosen file is copied into `final_glb/<name>.glb` and converted to metres there (§1 Units). Regenerate preselects the same mode and quad budget with a new seed; the reviewer can switch HD / Smart Mesh and change the budget before submitting.
 
 ### Update 2026-09-29: right tile default = Tripo + auto smooth
 The bed test showed Tripo's geometry is usually the better base and its main flaw is its stored normals (averaged across hard edges, so flat rails shade "bulgy"). New default for every asset: **left tile = Tripo version**, **right tile = Tripo + auto smooth 30°** (seam vertices joined by position, Tripo normals replaced by angle-based smoothing). The heavier steps are opt-in per asset via checkboxes on the review card: *Clean-up and repair* (weld, needles, caps, face orientation), *Remove duplicate layers*, *Auto smooth 30°*, *Minimum roughness 0.6*. Script: `postprocess.py` takes `"steps": {"repair", "dedupe", "smooth", "roughness"}`; `"mode": "tripo"` presets all off.
@@ -409,8 +409,10 @@ v2 is a separate folder, `TripoAutoGen_v2`, next to `TripoAutoGen`. It uses the 
 | Average score | What happens |
 |---|---|
 | 65 or more | Accepted with the best variant's steps (calibration: 9/18 accepted, 0/16 bad) |
-| 50–64 | One paid retry, then the best attempt |
-| Under 50 | Up to `max_retries = 2` paid retries (Meshy first, then Tripo with a new seed), then held for a person |
+| 50–64 | One paid retry, then the best attempt (until 2026-11-25) |
+| Under 50 | Up to `max_retries = 2` paid retries (Meshy first, then Tripo with a new seed), then held for a person (until 2026-11-25) |
+
+**Since 2026-11-25 (section 42):** anything under 65 is held for a person, and nothing is spent. The card offers "Upload a photo → Tripo" and "Send to Meshy". The retry bullets below describe the old behaviour; `max_retries` is no longer used by the gate.
 
 - A retry goes through `submit_decision` like "Fail – regenerate": same undo window and daily credit cap. It is recorded with `by: "qa"`.
 - `qa_retries` counts every regeneration of the asset, including ones a person started.
@@ -424,7 +426,7 @@ v2 is a separate folder, `TripoAutoGen_v2`, next to `TripoAutoGen`. It uses the 
 - A card can't be discarded while a paid run for it is under way.
 
 **Tests:**
-- `tests/e2e_qa.py`: fake Tripo, Meshy and Gemini, real Blender. Covers the retry-then-accept path, accept straight away, and two retries then a person.
+- `tests/e2e_qa.py`: fake Tripo, Meshy and Gemini, real Blender. Rewritten 2026-11-25 for section 42: a low score held for a person then Send to Meshy, accept straight away, a drawn 3/4 then Upload a photo, and both drawings rejected then held.
 - `tests/test_discard.py`.
 - `tests/e2e.py`, `test_prev.py` and `test_rules.py` still pass on v2.
 
@@ -445,7 +447,8 @@ v2 is a separate folder, `TripoAutoGen_v2`, next to `TripoAutoGen`. It uses the 
   - **Explicit picks win:** Meshy photos a person picks in the regenerate panel are used as they are.
   - **On the card:** what was sent shows on the version, for example "Tripo multi-view: front + back photos."
 - **Order.** The review list shows the newest card first.
-- **Tests:** `tests/test_photos.py` (AVIF named `.jpg`, WebP, photo choice). `tests/e2e_qa.py` now also checks the multi-view Tripo run and the 4-photo Meshy retry.
+- **Tests:** `tests/test_photos.py` (AVIF named `.jpg`, WebP, photo choice). `tests/e2e_qa.py` checked the multi-view Tripo run and the 4-photo Meshy retry until 2026-11-25.
+- **Since 2026-11-25 (section 42):** Tripo no longer runs multi-view. It gets ONE photo, chosen from these labels. Meshy's choice is unchanged.
 
 ## 24. Tripo API v3 (built 2026-10-05)
 Tripo retires API v2 on 2026-11-01 00:00 Beijing time (31 Oct, 9:30 pm IST). `clients.Tripo` now talks to v3 (`https://openapi.tripo3d.ai/v3`, same `tsk_` key, following 3D_models_creator/tripo.py):
@@ -484,7 +487,9 @@ Products with several real photos keep the normal retries (Meshy first, then Tri
 
 **Settings and tests:**
 - `[qa] drawn_views = true` turns this on; set it to false for the normal retries only.
-- `tests/e2e_qa.py` case D: one straight front, QA retry with drawn left, back and right, then Tripo multi-view with 4 views, accepted.
+- `tests/e2e_qa.py` case D (until 2026-11-25): one straight front, QA retry with drawn left, back and right, then Tripo multi-view with 4 views, accepted.
+
+**Since 2026-11-25 (section 42):** the QA no longer retries, so the four drawn views are not made for Tripo. Instead, before the first Tripo run, a product without a real 3/4 photo gets ONE drawn three-quarter view, checked the same way (outline and Gemini, one redraw). Meshy's "drawn views" option in the regenerate panel still works as described here.
 
 
 ## 26. One folder per vendor (built 2026-10-06)
@@ -528,6 +533,8 @@ Asked by Mukul: a bed comes as queen, king…; art and other products come in se
 
 
 ## 29. Tripo P2 only, texture as its own step; QA accepts at 60 (built 2026-10-06)
+
+**Replaced on 2026-11-25 by section 42** (H3.1 in one task, 45 credits, FBX). The P2 code paths stay for jobs queued before.
 
 Why: the Evan Queen Bed (Sanibel Draped) came out badly on the tool and well on the Tripo website. The website's Smart Mesh is **P2.0** (launched 21 Sep 2026); the tool was still on P1-20260311 because the model name wasn't re-checked at the v3 migration (the API's own error lists `P2-20260801`). Mukul: "use P2 only, and texture in a separate step"; no P1-vs-P2 comparison.
 
@@ -594,3 +601,141 @@ Mukul: a second vendor for living-room assets, with the generator picking links 
 - **Category.** The title rules misfile two of the first pages ("Mirror Table Lamp" is a mirror, "Kenji Console Table" under "Sofa Tables" a sofa), so the site's own category segment (`site_category`: sofas, loveseats, sectional-sofas, accent-chairs, coffee/end/sofa-tables + ottomans, tv-stands-consoles + cabinets, lamps, wall-art, rugs) is passed as the category override unless the CSV row sets one. Everything else is `batch`: the same CSV header aliases, `dims_from_manifest` for a size typed in the row, `existing_cards`, the daily cap, the balance check, `--dry-run` / `--max` / `--regenerate`, and a `<csv stem>_result.csv`. Pages are cached beside the CSV in `_rf_pages/<sku>.html` so a dry run and the real run fetch each once; `--delay` (1.5 s) spaces the requests. The vendor's sheet slug is `raymour_flanigan`. The store meta keeps sku, price, currency, style, color, brand, collection and the row's notes.
 - **Tests:** `tests/test_rf.py` on `tests/fixtures/rf_sofa.html` (the Carmine Sofa page cut down to its variant plus one decoy variant) and `rf_lamp.html`: URL parsing, the category override, parse, the image filter, photo naming (studio / room split under Pillow), the CSV reader and `plan_url` with the fetch stubbed.
 - **First run:** the modern-style living-room pick list (`RaymourFlanigan_autogen_2026-10-23` on the Desktop, `picks.csv`), about 34 paid products at 120 credits each inside the 5,000-credit balance, rugs and art free.
+
+## 36. Session folder: glb\ and thumbnails\ next to the run (2026-10-27)
+
+Mukul: besides the per-asset folder under Assets, the Desktop folder a run was started from gets two folders, `glb\` and `thumbnails\`, holding every model of that run, so the GCS upload is a drag of two folders. Until now a session did this by hand after approval (the R&F run of 2026-10-23); the 2026-10-26 rugs run did not, because nothing in the tool or the notes said so.
+
+- **Where it is recorded.** `batch <folder>` and `batch-urls <csv>` pass the folder (the CSV's folder for batch-urls) to `pipeline.add_product` as `deliver_dir`, which writes it to meta.json. Every intake sets it afresh, so a product added later through the web form has none and never writes into an older run's folder.
+- **When it is filled.** `vendor_export.export` (the finalize job, the sizes job and `export-vendor`) copies `<stem>_adw.glb` to `<deliver_dir>\glb\` and the store's `thumbnail\<stem>_adw.jpg` to `<deliver_dir>\thumbnails\`, the same names as the vendor folder and the sheet CSV. The row's `export` records it under `session`. The session folder itself is never created: when it is missing (approved on another PC, or moved) that is logged and skipped; a copy error is logged and never fails the approval.
+- **Reruns.** `batch.product_folders` skips sub-folders named `glb` and `thumbnails`, so running `batch` again on the same folder after approvals does not take the thumbnails for a product.
+- **Tests:** `tests/test_thumbs.py` (export with and without a session folder, and with a missing one), `tests/test_batch.py` (the two folders are not products).
+
+## 37. Sheet CSV in the session folder: made at intake, a row per approval (2026-10-28)
+
+Mukul: "the data csv should be generated immediately and kept in the same folder, with the current date as suffix. We do not need to wait for passed/failed assets before getting to this sheet." Then: failed products are not to be in it, "only add them if a revision is fixed and approved by user/gemini".
+
+- **Made at intake.** `batch <folder>` and `batch-urls <csv>` call `sheet.session_csv` once they have queued: it creates `assets_<vendor>_<date>.csv` (the `export-sheet` name; `assets_all_<date>.csv` when a run mixes vendors) in the session folder of section 36, beside `batch_result.csv` / `<csv stem>_result.csv`, holding the header line, and writes its name to each queued product's meta as `deliver_csv`. A dry run writes nothing. The date is the day the run was queued, so a model approved the next day still goes into this file. Every intake resets `deliver_csv` (pipeline.add_product), like `deliver_dir`.
+- **A row per approval.** `vendor_export.export` (the finalize job after a Gemini auto-accept or a reviewer's accept, the sizes job, and `export-vendor`) calls `sheet.session_add`, which adds the model's row in the Models sheet's 21 columns (section 32) with the final GLB's measured size. A product that fails, is discarded or is never approved never gets a row. A fixed revision approved again replaces its own row: rows are keyed by File name, one per final GLB (not by UUID: `sheet.record` gives a product's sizes the product's UUID).
+- **Never fatal.** The folder is never created (approved on another PC, or moved: skipped, like the glb\ copy). A write error (the CSV open in Excel) is logged on the job; `export-vendor --asset <name>` adds the row later. Parallel finalize jobs share one lock around the read-modify-write.
+- **Reruns.** A second run into the same folder on the same day keeps the file and its rows. `batch.read_manifest` never reads an `assets_*.csv` as the manifest.
+- **Tests:** `tests/test_sheet.py` (`test_session_csv_created_at_intake_rows_at_approval`), `tests/test_thumbs.py` (export adds the row), `tests/test_batch.py` (manifest ignores the sheet CSV).
+
+## 38. Models sheet auto-sync: approved rows yellow, failures red (2026-10-28)
+
+Mukul: "Whenever an asset gets approved automatically by a user or gemini, add a row there and mark its cell color light yellow 2. In case an asset fails - mark it red. Keep it red unless the asset approves." Asked first and answered: failures go in a separate tab (the asset-upserter imports Models rows by row range from a CSV export and cannot see colours); failed means Gemini gave up, a run error, a reviewer's Fail, or Discard; the whole row is coloured; no CDN upload yet.
+
+- **Pull, not push.** The tool never calls Google: `autogen/sheet_sync.py` writes one JSON event per approval or failure into `<assets>\_runner\sheet_outbox\` (`<UTC time>_<PC>_<file name>_<event>.json`, temp file + rename), and an Apps Script bound to the Models sheet (`Auto Thumbnails to Sheets\models_sheet_script.txt`, a 5-minute time trigger turned on from its "Asset tools" menu) reads the folder through Drive, applies the events in name (time) order and moves each file to `done\` (`bad\` when unreadable; renamed `_<name>` when the person has no right to move it). No keys, no Cloud project, the sheet stays private; the script runs as the one person who turned auto-sync on.
+- **approved** (`sheet_sync.approved`, from `vendor_export.export` after the thumbnail is in the vendor folder: the finalize job and the sizes job; `export-vendor` only with `--sheet`, so a backfill never touches the sheet): the sheet CSV's 21 columns (section 32) with the measured size, Thumbnail left empty, and `thumb_dir` (the vendor folder's path under Assets). The script adds the row at the bottom of Models, or updates the row with that File name in place (size and paths refreshed, other cells only filled when empty, so typed corrections stay), colours the whole row `#fff2cc`, puts `Assets\<thumb_dir>\<File name>.jpg` into the Thumbnail cell as a cell image (a base64 data URL), and deletes the File name's rows from the failures tab. A thumbnail Drive has not uploaded yet is retried by later runs for 3 hours (script property `pendingThumbs`).
+- **failed** (`sheet_sync.failed`): the columns known before approval (no model or image paths) and a reason, keyed by the File name the model will get. Sent from `autoqa.gate` when it leaves a card for a person ("Gemini gave up: best N/100 after R retries: <reason>"), `worker._run` when a generate / procedural / finalize / resize / sizes job ends in error (`sheet_sync.job_failed`; a QA scoring error is not the model failing), `pipeline.submit_decision` with result fail ("Reviewer marked Fail: <note>"), and `pipeline.discard_row` when given cfg (the server passes it; "Discarded"). The script writes it to the "Autogen failures" tab (made on first use: the Models header plus Reason, When, PC), one row per File name, whole row `#f4cccc`. Restore leaves it red; only an approval removes it. A failure for a File name already approved in Models is ignored.
+- **Never fatal.** Every hook is wrapped: a missing drive or a bad cfg is logged on the job and the job goes on. `[sheet] sync = false` turns the tool side off.
+- **Tests:** `tests/test_sheet_sync.py` (event content and File name, blank paths on failures, sync off, job kinds, Fail and Discard, never raises). The script itself was run against in-memory mocks of SpreadsheetApp / DriveApp (not shipped); the cell-image step is the one part still to see on a real sheet.
+
+## 39. A job runs only on the PC that queued it; Drive's "(1)" copies repaired (2026-10-29)
+
+Mukul: "why certain assets which were made by other use do not show at my end? ... Like - aberdeen_round_dining_table, aberdeen_woven_seagrass_dining_chair." The cause: on 2026-10-28 the review pages of both PCs were open, and both workers ran the laptop's jobs for charleston v1 and the two Aberdeen pieces. A claim file reaches the other PC through Drive seconds to minutes late, so `Store.claim` cannot keep two PCs off one job. Tripo was paid twice (about 360 credits), and Drive kept each PC's copy as `work (1)`, `final_glb (1)`, `thumbnail (1)` and `rows/<id> (1).json`. The Aberdeen pieces had only the "(1)" folders, so their cards' links were broken and the page left them out; other products showed a second card. Two ledger lines were also lost (both PCs appending to one file). Asked first and answered: the PC that queued a job runs it; repair the copies and teach the start-up tidy to do it.
+
+- **Owner.** `Store.owner(job)` is `owner`, else `created_by` (the machine id `new_job` already wrote). `Store.mine(job)` is true for this PC's jobs and for a job from before (no `created_by`), which runs anywhere as before. `Worker.tick` skips other PCs' jobs; `Worker._run` re-reads the job and returns if it was moved meanwhile. **Try again** (`Worker.retry`) sets `owner` to the PC where it was pressed.
+- **Open PCs.** Every 30 s the worker writes `assets/_runner/machines/<machine>.json` (`at`, `paused`). `Store.is_open` is "seen in the last 180 s and not paused". `/api/status` returns `machines` and `open_s`; `job_summary` returns `owner`; the "queued ahead" count is per owner.
+- **Run here.** On another PC's page a queued job reads "Waiting for <PC>, the PC that queued it" and, when that PC is closed or paused, has a **Run here** button (`POST /api/jobs/<id>/take`, `Worker.take`, after a confirm that warns of paying twice). It is refused while that PC runs the job (a fresh claim) or while its page is open and not paused; otherwise `owner` becomes this PC and the job log says so. After a crash mid-job, Run here continues the already-paid task (section 17), like the stale-claim takeover did.
+- **Start-up tidy** (`Store._tidy`, from `organize`, skipped while a job runs on the product). Top-level `work`, `rows`, `jobs`, `jobs_v2`, `decisions`, `source_images`, `final_glb`, `thumbnail` "(N)" folders merge into the plain folder (as before), or are renamed to it when it is missing. In `rows/`, `decisions/`, `jobs/`, `jobs_v2/` a `<name> (N).json` or `<name> (from ...).json` (an older merge's leftover) moves to `<product>/_conflicts/<sub>/` when the plain file exists, never deleted, and is renamed to the plain file when it is missing. Drive names the copies on each PC separately, so each PC repairs its own view. Photos in `source_images` keep their names ("photo (1).jpg" is often the shop's own download name), and so do `work/<row> (1)` folders (a second, different model of that version).
+- **Ledger.** Each PC appends to `assets/_runner/credits/<date>.<machine>.jsonl`. `credits_today` adds up every file of the day (the old shared `<date>.jsonl` and Drive's "(1)" copies included), a line found in two files counted once.
+- **Repair of 2026-10-29.** The tidy was run once over the live assets folder (both Aberdeen pieces and evan_queen_bed_with_sanibel_tucked renamed; the duplicate rows and decisions moved to `_conflicts`). The vendor delivery folders under `Assets\Raymour & Flanigan\` were not touched: they still hold `aberdeen_round_dining_table (1)` and `aberdeen_woven_seagrass_dining_chair (1)`, and the round table's delivered `_adw.glb` is the first Tripo model while its card now shows the second.
+- **Tests:** `tests/test_one_pc.py` (owner, tick, Run here allowed and refused, a move between tick and start, Try again, the tidy on the Aberdeen layout, a busy product left alone, the per-PC ledger and dedupe).
+
+## 40. Floating parts removed (2026-10-29)
+
+Mukul: "rowan_nightstand has a hook/lock on back of it which is just suspended in air. this part isnt there in the reference. anything which is just arbitrary suspended in air should be removed." The Tripo model has a small hook hanging 0.8 cm behind the back panel at the top. It touches nothing, and it sticks out 4.4 cm behind the back. Gemini's review had noted it as a "hardware bracket mounted on the top-rear panel".
+
+- **Step 1c of `postprocess.py`.** It runs after the orientation, before the pivot and the sizing, so a removed piece doesn't count towards the dims. It runs on every build: generate, Fix size, the sizes job, and a finalize with ticked steps. Lamps (shades, finials and crystals hang by design) and rugs are skipped. There is no toggle.
+  1. The mesh is split into pieces. Faces sharing a vertex position belong to the same piece (Tripo splits at UV seams).
+  2. Pieces whose surfaces come within 0.5% of the model's diagonal touch, and touching pieces form a group.
+  3. A group is held up when it reaches the floor or is the largest group.
+  4. A group that is not held up is removed when both of these hold:
+     - it is small: under 2% of the surface and under a quarter of the model's size;
+     - it sticks out at least 2% of the diagonal past the outline (bounding box) of the rest of the model.
+- **Why the overhang test.** The first draft had no overhang test. It was run over all 172 card versions (2026-10-29), and the renders showed it would remove real parts:
+  - Tripo's drawer pulls and ring pulls also float. hayes_dresser's sit 0.7% off the fronts and priscilla_60_accent_cabinet's more than 1%, but they stay within 1% of the outline.
+  - weeping_ficus loses leaves.
+  - Meshy models have hidden inner scraps (daley_chest, melrose_platform_bed, priscilla, charleston, evan). These stay inside the outline.
+
+  With the overhang test, rowan's hook (4% past the outline) is the only piece removed. The final run covered 178 versions: 161 ran the step, and the other 17 are lamps, which skip it. All 178 built, and rowan's dims stayed 71.1 × 49.5 × 67.3 cm.
+- **The card.** The report's `floating_removed` holds the pieces, faces, sides and area. `jobs.floating_note` adds a line to the version's info: "Removed floating part (back): a small piece that touched nothing else in the model." Fix size rebuilds the line, so it never repeats.
+- **Existing models are not rebuilt.** rowan_nightstand's final GLB and its vendor-folder copy still have the hook. **Fix size** with the same dims rebuilds every version from the raw download and re-delivers the accepted one, at no credit cost.
+- **Tests:** `tests/test_floating.py` (the card line). The rule was also checked by running `postprocess.py` (AO skipped) on every card version's raw download into a scratch folder: 178 versions, no failures, one removal.
+
+## 41. Add links: a vendor's product links, reviewed on a page, sent as tasks (2026-10-29)
+
+Mukul: "we also need to add capability to add links or upload a txt file which contains link from a particular vendor, doing so will load all these assets to the page - then the user can review them (like read dimensions etc) and then send them as tasks". This is `batch-urls` (section 35) with a page in front of it: `web/links.html` at `/links` (an **Add links** button beside Add products on the review page), and `autogen/links.py`.
+
+- **1. Links in.** Paste any text or open a .txt (or .csv) file; `/api/links/extract` picks out the http(s) links in order, drops `#fragments`, trailing punctuation and repeats, and keeps the first 200. The vendor field (the folder under assets, the same for the whole list) is filled with the most common site's vendor: Raymour & Flanigan, Living Spaces, CORT, Temple and Webster by name, any other site by its first host label ("Article"). The reviewer can change it.
+- **2. Each link loaded.** The page loads three links at a time through `/api/links/load`; the server spaces requests to one site 1.5 s apart and keeps each parsed page for 6 hours, so editing a card never fetches the page again (**Load again** does). raymourflanigan.com pages go through `rf.parse`. Any other shop goes through `links.parse_generic`: the schema.org `Product` in the JSON-LD (`@graph`, lists and `hasVariant` included), then Open Graph tags, giving the title, SKU, price, currency, brand, availability, breadcrumb and up to 12 photos (no SVG or GIF). The size comes from, in order: the Product's `width` / `depth` / `height` (QuantitativeValue in inches, cm, mm, m or ft), its `additionalProperty`, the product description, then the page text (`96"W x 22"D x 78"H`, `W: D: H:`, Width / Depth / Height labels with "Overall" preferred, `Dimensions: 200 x 90 x 75 cm`). The card says where the size was read, because a text match is a guess.
+- **Refused sites.** livingspaces.com is never requested (it answers 403); the card says to use Add products with the bookmark. Any other site that answers 401, 403 or 429 gets the same kind of card. The tool never retries around a refusal. Only http(s) links are fetched (`urllib` would also open `file://`).
+- **3. Review.** Each card shows the photos (a click leaves one out; the first one left in becomes `signature_01`, the main photo), the title, the page link, the facts, W / D / H in inches with the cm conversion, the category (all of `rules.toml`), Units for a set, and the plan line from `rf.plan_info`: asset name, category, mode, credits or "free", a card that already exists, a generation already queued, the set-of-N hint and `size_check`'s unit warning. Edits re-plan the card half a second after the last keystroke. A card is ticked when it is loaded without a problem, without an existing card and without a generation in progress. A card with a problem (no size, every photo left out, no photos, discontinued) can't be ticked until it is fixed.
+- **4. Send.** The footer shows the ticked count, the credits, today's spend against the daily cap and the Tripo balance, and asks for confirmation with the credits in the message. `/api/links/send` runs in the background (the photos are downloaded then) and the page polls `/api/links/run`. Each product goes through the `batch-urls` guards in this order: a refused site, a problem, a second link with the same asset name in this list, a generation for it already queued or running on any PC (a second Send must not pay twice), an existing card (unless **New version for products that already have a card** is ticked), the daily cap, the Tripo balance. Then it goes through `rf.queue` (and from there `pipeline.add_product`), so the normal undo window and run-time cap check apply. Only one send runs at a time.
+- **Session folder.** It defaults to `Desktop\<Vendor>_links_<date>` and must be a full path. It gets `links_result.csv` (sent_at, url, asset, status, job, cost, reason; a second send into the same folder adds its rows below) and the run's sheet CSV (section 37) at once. It is each queued product's `deliver_dir`, so its approvals land in `glb\`, `thumbnails\` and the sheet CSV (sections 36 and 37).
+- **Not checked against live shops.** The generic parser is tested on hand-written pages only. R&F is the only vendor whose live pages have been read. The first real list from another shop needs its sizes checked card by card.
+- **Tests:** `tests/test_links.py` (link extraction, vendors, the Living Spaces and 403 refusals without a retry, the page cache, schema.org parsing with cm sizes, size from the description, the page text and `additionalProperty`, the reviewer's edits, a real send into a temporary store with the downloads stubbed, the guards, one send at a time, the server routes). `tests/e2e_links.py` runs the whole path against a fake shop on 127.0.0.1, fake Tripo, real Blender and the real server: paste, load, edit, Send, generate, accept, then the session folder, its sheet CSV row, the vendor folder and the Models sheet event.
+
+## 42. Tripo HD (H3.1) from one 3/4 photo; a low score waits for a person (2026-11-25)
+
+Why: the artists get good models on the Tripo website with HD (H3.1) and ONE three-quarter photo. When a product has no 3/4 photo, they ask Gemini or ChatGPT to draw one. The tool was on P2 (section 29) with multi-view input and paid retries. On 2026-11-23, 5 HD runs through the API (Maddie, Watson, Shaw, Annalisa, Chester; 225 credits) matched the website's results. Mukul approved the plan on 2026-11-25 and decided two points:
+- "Don't send to Meshy. Show to the user and wait for user input." The card offers exactly two options: upload a photo and resend it to Tripo (the uploaded photo goes as it is, with no new drawing), or send to Meshy.
+- "Yes, raise the count": higher quad budgets for small tables, chairs, dining tables and accent chairs.
+
+**Model and body** (`clients.Tripo.body`, `rules.toml [modes]`):
+- **Model:** every Tripo mode (`p2`, `hd`, `smart`) is now `v3.1-20260211`, labelled "HD (H3.1)". The old names stay so older cards and queued jobs still resolve.
+- **One task:** `image_to_model` with `texture: true`, `pbr: true`, `texture_quality: "detailed"`, `geometry_quality: "standard"`, `quad: true`, `face_limit` = the quad budget (clamped to 48–25,000; with quad on, Tripo counts quads and lands about 2–8% over), `enable_image_autofix: false` (autofix may repaint the photo), and both seeds. There is no separate texture step.
+- **Credits:** 45 per run (40 detailed texture + 5 quad, from Tripo's records of 2026-11-23). The cost is read from `[credits] tripo_h31` (default 45) in `jobs.Ctx.cost` and `pipeline.tripo_cost`, so config.toml was not changed. The daily cap of 1,500 now allows about 33 Tripo runs.
+- **P2 code:** still there for jobs queued before; `jobs.is_p2` / `is_h31` decide by the mode's `model_version`.
+
+**FBX to GLB** (`jobs.generate`, `blender_scripts/fbx_to_glb.py`):
+- With quad on, Tripo returns an FBX with its 4K PBR maps embedded: base colour, roughness, metallic and normal. The download is recognised by its first bytes (`Kaydara FBX`) and kept as `tripo_raw.fbx`.
+- Blender converts it with its default FBX import and default GLB export (stage "converting FBX"). The GLB is triangulated, because glTF has only triangles. Post-processing then runs on `tripo_raw.glb` as before.
+- **Check:** on the 5 test FBX files, the tool's conversion matched the earlier hand conversions exactly, taking 2–5 s each, with 4 maps at 4096.
+
+**Which photo Tripo gets** (`jobs._tripo_34`; `qa.pick_34`, `pick_fallback`, `draw_34`, `check_34`). This happens before any Tripo credit is spent:
+1. **A photo a person chose** (uploaded on a low-score card, or pressed in the regenerate form: `photo_locked`) goes as it is. No labels, no drawing.
+2. **Else the best real 3/4 photo**, by Gemini's photo labels (section 23): a front 3/4 first, then a white background, then confidence. Photos that are low confidence, show another setup, or are back or detail shots are skipped. For a bed, the foot-end 3/4 (labelled "back") also counts.
+3. **Else Gemini draws a 3/4** from up to 4 real photos of the same setup (`[qa] image_model`) and checks it in two ways:
+   - **Outline:** the drawn object's width-to-height ratio must be possible for a 3/4 view of the listed W×D×H.
+   - **Gemini:** it must show the same product, with nothing invented, nothing missing, and the right proportions.
+   
+   A rejected drawing is redrawn once, with the reason. A kept drawing is saved as `source_images/_drawn/34_tryN.png`, recorded in `_drawn/three_quarter.json` (`ok`, `file`, `score`, `from`) and reused by later runs. It costs about $0.10 a drawing on the Gemini key, with no credits.
+4. **If both drawings are rejected**, the best real photo goes (a straight front on white, then any clean view). `three_quarter.json` records `ok: false` with the reasons, and the card says so.
+
+Without a Gemini key, the job's own photo goes. The version's info line names the choice, for example "Tripo got one real three-quarter photo (front 3/4, white background)".
+
+**A low score waits for a person** (`autoqa.gate`, `pipeline.user_photo`, `web/index.html`):
+- **65 or more:** accepted as before.
+- **Under 65:** the row gets `qa_decision.action = "needs_person"` and a red row in the Models sheet's failures tab ("waiting for a person"). No decision is made and nothing is spent: there is no paid retry and no Meshy run. This replaces the retry rows of section 22.
+- **The card's two buttons:**
+  - **Upload a photo → Tripo · 45 credits:** POST `/api/rows/<id>/user_photo` (`{name, data}` as a data URL). The photo must be a JPEG, PNG, WebP or AVIF; empty files, PDFs and the like are refused. It is saved as `source_images/user_<time>.jpg` (`.png` for a PNG) and added to meta's photos with the label "uploaded". A regenerate decision `by: "person"` is then made with `user_photo`, a new seed and the card's mode; the spec gets `photo_locked`. The usual undo window and the daily-cap check apply.
+  - **Send to Meshy · 30 credits:** the normal Meshy regenerate decision, with Meshy's own photo choice (`auto_photos`).
+- **A photo pressed in the regenerate form** is also sent as it is (`photo_picked`).
+
+**Quad budgets raised** (`rules.toml`):
+
+| Category | Before | Now |
+|---|---|---|
+| Small tables, ottomans, benches | 1,500 | 4,000 |
+| Dining chairs, stools | 2,000 | 5,000 |
+| Dining tables, desks | 2,000 | 4,000 |
+| Accent chairs | 3,500 | 5,000 |
+
+**Cap holds start again by themselves** (`Worker.requeue_cap_holds`, every 60 s while not paused):
+- A job blocked by the daily credit cap is queued again once it fits: on the next day, or after the cap was raised.
+- Only this PC's jobs are requeued, and never one a later run for the same card replaced. A low Tripo balance still needs a person.
+- Today's count includes paid runs already queued, so one pass never requeues more than fits. The cap is checked again when the job pays.
+
+**Tests:**
+- `tests/test_h31.py` (14 tests, no network): the 3/4 pick (a bed's foot-end too), the fallback, the outline check, the H3.1 body and face-limit clamp, 45 credits for every Tripo mode, a low score held with no decision or job, a high score accepted, Upload a photo (a locked spec at 45 credits, the photo saved, junk refused), and cap holds (one of two requeued, a balance hold left, a replaced hold left).
+- `tests/e2e_qa.py` (fake Tripo, Meshy and Gemini, real Blender and server; the fixture `tripo_raw.glb` is a real H3.1 FBX):
+  - **A:** a real 3/4 photo goes to H3.1, the FBX is converted, the card scores 55 and waits. "Send to Meshy" then scores 70 and is accepted.
+  - **B:** a card that scores 88 is accepted.
+  - **D:** a drawn 3/4 passes its check and scores 40. Upload a photo then goes to Tripo as it is and is accepted.
+  - **C:** both drawings are rejected, the best real photo goes, and the card scores 30 and waits.
+  - The ledger comes to 255, and nothing is spent while a card waits.
+- `tests/e2e.py`, `e2e_links.py`, `e2e_sizes.py` and `e2e_stop.py` now expect 45 credits per Tripo run and the H3.1 body. All four pass (2026-11-25). e2e.py's ledger is 120 (45 + 30 + 45). Their fixtures folder also needs `side_18.jpg` (named `black_wood_office_set_side_18.jpg`) and `fruit.jpg`.
+
+**Not checked yet:** a live paid run through the tool (about 135 credits on 3 products: one with a real 3/4, one without, one bed), and the two card buttons in a browser.
