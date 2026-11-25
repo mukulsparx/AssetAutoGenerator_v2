@@ -7,6 +7,7 @@ PORT = int(sys.argv[1]); TRIPO_GLB, MESHY_GLB = sys.argv[2], sys.argv[3]
 tasks, calls = {}, []
 POLLS = int(os.environ.get("MOCK_POLLS", "2"))   # polls before a task finishes
 SCORE = [int(os.environ.get("MOCK_QA_SCORE", "85"))]          # POST /set_score {"score": n} changes it
+CHECK34 = ["good"]                                             # POST /set_check {"check34": "good"|"bad"}: the 3/4 drawing check
 
 
 class H(BaseHTTPRequestHandler):
@@ -37,6 +38,7 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0); body = self.rfile.read(n)
         p = self.path
         if p == "/set_score": SCORE[0] = int(json.loads(body)["score"]); return self._j(200, {"score": SCORE[0]})
+        if p == "/set_check": CHECK34[0] = json.loads(body)["check34"]; return self._j(200, {"check34": CHECK34[0]})
         if p.startswith("/gemini/"):                     # fake Gemini review: scores from MOCK_QA_SCORES, in call order
             if not self.headers.get("x-goog-api-key"): return self._j(403, {"error": {"message": "no key"}})
             b = json.loads(body); imgs = sum(1 for x in b["contents"][0]["parts"] if "inline_data" in x)
@@ -44,11 +46,18 @@ class H(BaseHTTPRequestHandler):
             if "IMAGE" in (b.get("generationConfig") or {}).get("responseModalities", []):   # a drawn view: a box with the listed proportions
                 import base64, io, re as _re
                 from PIL import Image, ImageDraw
-                view = "front" if "product's front" in txt else "back" if "behind" in txt else "left" if "own left" in txt else "right"
-                ratio = float(dict(x.split("=") for x in os.environ.get("MOCK_DRAW_RATIOS", "front=0.41,back=0.41,left=0.28,right=0.28").split(","))[view])
+                view = ("three_quarter" if "from a three-quarter view" in txt else "front" if "product's front" in txt else "back" if "behind" in txt
+                        else "left" if "own left" in txt else "right")
+                ratio = float(dict(x.split("=") for x in os.environ.get("MOCK_DRAW_RATIOS", "front=0.41,back=0.41,left=0.28,right=0.28,three_quarter=0.5").split(","))[view])
                 im = Image.new("RGB", (800, 600), "white"); h = 400; w = int(h * ratio); ImageDraw.Draw(im).rectangle([400 - w // 2, 100, 400 + w // 2, 500], fill=(90, 60, 40))
                 bio = io.BytesIO(); im.save(bio, "PNG"); calls.append({"api": "gemini_draw", "view": view})
                 return self._j(200, {"candidates": [{"content": {"parts": [{"inline_data": {"mime_type": "image/png", "data": base64.b64encode(bio.getvalue()).decode()}}]}}]})
+            if "generated three-quarter view meant to show" in txt:   # the drawn 3/4 check (qa.check_34)
+                good = CHECK34[0] == "good"; calls.append({"api": "gemini_check34", "ok": good})
+                ans = {"same_product": True, "invented": [] if good else ["a drawer that is not there"], "missing": [], "proportions_ok": True,
+                       "usable": good, "score": 82 if good else 40, "why": "" if good else "it adds a drawer"}
+                return self._j(200, {"candidates": [{"content": {"parts": [{"text": json.dumps(ans)}]}}], "modelVersion": "mock-flash",
+                                     "usageMetadata": {"promptTokenCount": 800, "candidatesTokenCount": 60}})
             if "drawings of the same product" in txt:
                 calls.append({"api": "gemini_check"}); names = _re.findall(r"= (front|left|back|right)", txt) if False else [w for w in ("front", "left", "back", "right") if f"= {w}" in txt]
                 return self._j(200, {"candidates": [{"content": {"parts": [{"text": json.dumps({"views": [{"view": n, "correct_side": True, "invented": False, "why": ""} for n in names]})}]}}]})
@@ -76,7 +85,11 @@ class H(BaseHTTPRequestHandler):
             if b["model"].upper().startswith("P2"):
                 if b.get("texture") is not False or b.get("pbr") is not False: return self._j(400, {"code": 1004, "message": "P2 mesh must come without texture (separate texture step)"})
                 if not 48 <= int(b.get("face_limit", 0)) <= 50000: return self._j(400, {"code": 1004, "message": "face_limit must be between 48 and 50000 (triangle mesh) for P2 model"})
-            tasks[tid] = {"id": tid, "polls": 0, "credits": 30 if b["model"].startswith("v3") else 100 if b["model"].upper().startswith("P2") else 50}
+            if b["model"].startswith("v3.1"):              # H3.1 HD: texture in the same task, quad topology, face_limit = quads
+                if not (b.get("texture") and b.get("pbr") and b.get("quad") is True and b.get("texture_quality") == "detailed"):
+                    return self._j(400, {"code": 1004, "message": "H3.1 test body must ask for detailed PBR texture and quad"})
+                if not 48 <= int(b.get("face_limit", 0)) <= 25000: return self._j(400, {"code": 1004, "message": "face_limit out of range for quad"})
+            tasks[tid] = {"id": tid, "polls": 0, "credits": 45 if b["model"].startswith("v3.1") else 30 if b["model"].startswith("v3") else 100 if b["model"].upper().startswith("P2") else 50}
             kind = "multiview_to_model" if p.endswith("multiview-to-model") else "image_to_model"
             calls.append({"api": "tripo_task", "body": {**{k: v for k, v in b.items() if k not in ("input", "inputs")}, "type": kind},
                           "files": len(b.get("inputs") or [1]), "views": [list(x)[0] for x in b.get("inputs") or []]})

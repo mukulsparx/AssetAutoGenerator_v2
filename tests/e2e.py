@@ -70,10 +70,10 @@ try:
     calls = json.loads(urllib.request.urlopen("http://127.0.0.1:9911/calls").read())
     mt = [c for c in calls if c["api"] == "meshy_task"]; assert len(mt) == 1 and mt[0]["body"]["target_polycount"] == 2500, mt
     tt = [c for c in calls if c["api"] == "tripo_task"][0]["body"]
-    assert tt["face_limit"] == 5000 and tt["model"] == "P2-20260801" and tt["model_seed"] and tt["texture"] is False, tt
-    tx = [c for c in calls if c["api"] == "tripo_texture"][0]["body"]
-    assert tx["model"] == "v3.5-20260815" and tx["texture_quality"] == "detailed" and tx["pbr"] and tx["texture_seed"], tx
-    ok.append("sent: Tripo P2 mesh (no texture) face_limit 5,000 with a seed, then the texture as its own task (v3.5, detailed); Meshy 2,500 quads per unit")
+    assert tt["face_limit"] == 2500 and tt["model"].startswith("v3.1") and tt["model_seed"] and tt["texture_seed"], tt
+    assert tt["quad"] is True and tt["texture"] and tt["pbr"] and tt["texture_quality"] == "detailed", tt
+    assert not [c for c in calls if c["api"] == "tripo_texture"], "H3.1 textures in the same task"
+    ok.append("sent: Tripo H3.1 one task (quad, detailed PBR) face_limit 2,500 quads with seeds, no texture step; Meshy 2,500 quads per unit")
     ids = [r["id"] for r in api("GET", "/api/assets")["docs"]]; assert "alameda_test-v1" not in ids; ok.append("old card superseded")
     # --- accept Meshy with auto smooth -> rebuilt -> final_glb
     api("POST", "/api/decisions/alameda_test-v2", {"result": "meshy", "steps": {"smooth": True, "dedupe": False}})
@@ -115,7 +115,7 @@ try:
     assert ra["procedural"] and ra["tris"] == 12, ra; ok.append(f"wall art built: {ra['tris']} tris, {ra['dims_cm']} cm, flags {ra['flags']}")
     assert (assets / "Other" / a["asset"] / "meta.json").exists() and (assets / "Living Spaces" / "alameda_test" / "meta.json").exists()
     ok.append("vendor folders: the Living Spaces product is in assets/Living Spaces, one with no vendor in assets/Other")
-    led = api("GET", "/api/status")["credits_today"]; assert led == 120 + 30 + 120, led; ok.append(f"credit ledger: {led} (100 P2 mesh + 20 texture, 30 Meshy, 100 + 20 Tripo)")
+    led = api("GET", "/api/status")["credits_today"]; assert led == 45 + 30 + 45, led; ok.append(f"credit ledger: {led} (45 Tripo H3.1, 30 Meshy, 45 Tripo H3.1)")
     # --- cross-site POST refused
     req = urllib.request.Request(B + "/api/pause", method="POST", data=b"{}", headers={"Content-Type": "application/json", "Origin": "https://evil.example"})
     try: urllib.request.urlopen(req); raise SystemExit("cross-site POST was accepted")

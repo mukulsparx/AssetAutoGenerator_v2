@@ -191,6 +191,11 @@ def make_handler(cfg, store, worker):
                 if m: return self._send(200, pipeline.remove_stopped(store, m.group(1)))
                 m = re.fullmatch(r"/api/rows/(.+)/(discard|restore)", path)
                 if m: return self._send(200, pipeline.discard_row(store, m.group(1), cfg) if m.group(2) == "discard" else pipeline.restore_row(store, m.group(1)))
+                m = re.fullmatch(r"/api/rows/(.+)/user_photo", path)       # low-score card: a person's photo -> Tripo as it is
+                if m:
+                    try: data = base64.b64decode(str(body.get("data") or "").split(",", 1)[-1], validate=True)
+                    except ValueError: raise ValueError("The photo did not arrive whole; try again.")
+                    return self._send(200, pipeline.user_photo(cfg, store, m.group(1), str(body.get("name") or ""), data))
                 m = re.fullmatch(r"/api/rows/(.+)/qa", path)
                 if m:
                     row = store.row(m.group(1))

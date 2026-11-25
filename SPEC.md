@@ -409,8 +409,10 @@ v2 is a separate folder, `TripoAutoGen_v2`, next to `TripoAutoGen`. It uses the 
 | Average score | What happens |
 |---|---|
 | 65 or more | Accepted with the best variant's steps (calibration: 9/18 accepted, 0/16 bad) |
-| 50–64 | One paid retry, then the best attempt |
-| Under 50 | Up to `max_retries = 2` paid retries (Meshy first, then Tripo with a new seed), then held for a person |
+| 50–64 | One paid retry, then the best attempt (until 2026-11-25) |
+| Under 50 | Up to `max_retries = 2` paid retries (Meshy first, then Tripo with a new seed), then held for a person (until 2026-11-25) |
+
+**Since 2026-11-25 (section 42):** anything under 65 is held for a person, and nothing is spent. The card offers "Upload a photo → Tripo" and "Send to Meshy". The retry bullets below describe the old behaviour; `max_retries` is no longer used by the gate.
 
 - A retry goes through `submit_decision` like "Fail – regenerate": same undo window and daily credit cap. It is recorded with `by: "qa"`.
 - `qa_retries` counts every regeneration of the asset, including ones a person started.
@@ -424,7 +426,7 @@ v2 is a separate folder, `TripoAutoGen_v2`, next to `TripoAutoGen`. It uses the 
 - A card can't be discarded while a paid run for it is under way.
 
 **Tests:**
-- `tests/e2e_qa.py`: fake Tripo, Meshy and Gemini, real Blender. Covers the retry-then-accept path, accept straight away, and two retries then a person.
+- `tests/e2e_qa.py`: fake Tripo, Meshy and Gemini, real Blender. Rewritten 2026-11-25 for section 42: a low score held for a person then Send to Meshy, accept straight away, a drawn 3/4 then Upload a photo, and both drawings rejected then held.
 - `tests/test_discard.py`.
 - `tests/e2e.py`, `test_prev.py` and `test_rules.py` still pass on v2.
 
@@ -445,7 +447,8 @@ v2 is a separate folder, `TripoAutoGen_v2`, next to `TripoAutoGen`. It uses the 
   - **Explicit picks win:** Meshy photos a person picks in the regenerate panel are used as they are.
   - **On the card:** what was sent shows on the version, for example "Tripo multi-view: front + back photos."
 - **Order.** The review list shows the newest card first.
-- **Tests:** `tests/test_photos.py` (AVIF named `.jpg`, WebP, photo choice). `tests/e2e_qa.py` now also checks the multi-view Tripo run and the 4-photo Meshy retry.
+- **Tests:** `tests/test_photos.py` (AVIF named `.jpg`, WebP, photo choice). `tests/e2e_qa.py` checked the multi-view Tripo run and the 4-photo Meshy retry until 2026-11-25.
+- **Since 2026-11-25 (section 42):** Tripo no longer runs multi-view. It gets ONE photo, chosen from these labels. Meshy's choice is unchanged.
 
 ## 24. Tripo API v3 (built 2026-10-05)
 Tripo retires API v2 on 2026-11-01 00:00 Beijing time (31 Oct, 9:30 pm IST). `clients.Tripo` now talks to v3 (`https://openapi.tripo3d.ai/v3`, same `tsk_` key, following 3D_models_creator/tripo.py):
@@ -484,7 +487,9 @@ Products with several real photos keep the normal retries (Meshy first, then Tri
 
 **Settings and tests:**
 - `[qa] drawn_views = true` turns this on; set it to false for the normal retries only.
-- `tests/e2e_qa.py` case D: one straight front, QA retry with drawn left, back and right, then Tripo multi-view with 4 views, accepted.
+- `tests/e2e_qa.py` case D (until 2026-11-25): one straight front, QA retry with drawn left, back and right, then Tripo multi-view with 4 views, accepted.
+
+**Since 2026-11-25 (section 42):** the QA no longer retries, so the four drawn views are not made for Tripo. Instead, before the first Tripo run, a product without a real 3/4 photo gets ONE drawn three-quarter view, checked the same way (outline and Gemini, one redraw). Meshy's "drawn views" option in the regenerate panel still works as described here.
 
 
 ## 26. One folder per vendor (built 2026-10-06)
@@ -528,6 +533,8 @@ Asked by Mukul: a bed comes as queen, king…; art and other products come in se
 
 
 ## 29. Tripo P2 only, texture as its own step; QA accepts at 60 (built 2026-10-06)
+
+**Replaced on 2026-11-25 by section 42** (H3.1 in one task, 45 credits, FBX). The P2 code paths stay for jobs queued before.
 
 Why: the Evan Queen Bed (Sanibel Draped) came out badly on the tool and well on the Tripo website. The website's Smart Mesh is **P2.0** (launched 21 Sep 2026); the tool was still on P1-20260311 because the model name wasn't re-checked at the v3 migration (the API's own error lists `P2-20260801`). Mukul: "use P2 only, and texture in a separate step"; no P1-vs-P2 comparison.
 
@@ -669,3 +676,66 @@ Mukul: "we also need to add capability to add links or upload a txt file which c
 - **Session folder.** It defaults to `Desktop\<Vendor>_links_<date>` and must be a full path. It gets `links_result.csv` (sent_at, url, asset, status, job, cost, reason; a second send into the same folder adds its rows below) and the run's sheet CSV (section 37) at once. It is each queued product's `deliver_dir`, so its approvals land in `glb\`, `thumbnails\` and the sheet CSV (sections 36 and 37).
 - **Not checked against live shops.** The generic parser is tested on hand-written pages only. R&F is the only vendor whose live pages have been read. The first real list from another shop needs its sizes checked card by card.
 - **Tests:** `tests/test_links.py` (link extraction, vendors, the Living Spaces and 403 refusals without a retry, the page cache, schema.org parsing with cm sizes, size from the description, the page text and `additionalProperty`, the reviewer's edits, a real send into a temporary store with the downloads stubbed, the guards, one send at a time, the server routes). `tests/e2e_links.py` runs the whole path against a fake shop on 127.0.0.1, fake Tripo, real Blender and the real server: paste, load, edit, Send, generate, accept, then the session folder, its sheet CSV row, the vendor folder and the Models sheet event.
+
+## 42. Tripo HD (H3.1) from one 3/4 photo; a low score waits for a person (2026-11-25)
+
+Why: the artists get good models on the Tripo website with HD (H3.1) and ONE three-quarter photo. When a product has no 3/4 photo, they ask Gemini or ChatGPT to draw one. The tool was on P2 (section 29) with multi-view input and paid retries. On 2026-11-23, 5 HD runs through the API (Maddie, Watson, Shaw, Annalisa, Chester; 225 credits) matched the website's results. Mukul approved the plan on 2026-11-25 and decided two points:
+- "Don't send to Meshy. Show to the user and wait for user input." The card offers exactly two options: upload a photo and resend it to Tripo (the uploaded photo goes as it is, with no new drawing), or send to Meshy.
+- "Yes, raise the count": higher quad budgets for small tables, chairs, dining tables and accent chairs.
+
+**Model and body** (`clients.Tripo.body`, `rules.toml [modes]`):
+- **Model:** every Tripo mode (`p2`, `hd`, `smart`) is now `v3.1-20260211`, labelled "HD (H3.1)". The old names stay so older cards and queued jobs still resolve.
+- **One task:** `image_to_model` with `texture: true`, `pbr: true`, `texture_quality: "detailed"`, `geometry_quality: "standard"`, `quad: true`, `face_limit` = the quad budget (clamped to 48–25,000; with quad on, Tripo counts quads and lands about 2–8% over), `enable_image_autofix: false` (autofix may repaint the photo), and both seeds. There is no separate texture step.
+- **Credits:** 45 per run (40 detailed texture + 5 quad, from Tripo's records of 2026-11-23). The cost is read from `[credits] tripo_h31` (default 45) in `jobs.Ctx.cost` and `pipeline.tripo_cost`, so config.toml was not changed. The daily cap of 1,500 now allows about 33 Tripo runs.
+- **P2 code:** still there for jobs queued before; `jobs.is_p2` / `is_h31` decide by the mode's `model_version`.
+
+**FBX to GLB** (`jobs.generate`, `blender_scripts/fbx_to_glb.py`):
+- With quad on, Tripo returns an FBX with its 4K PBR maps embedded: base colour, roughness, metallic and normal. The download is recognised by its first bytes (`Kaydara FBX`) and kept as `tripo_raw.fbx`.
+- Blender converts it with its default FBX import and default GLB export (stage "converting FBX"). The GLB is triangulated, because glTF has only triangles. Post-processing then runs on `tripo_raw.glb` as before.
+- **Check:** on the 5 test FBX files, the tool's conversion matched the earlier hand conversions exactly, taking 2–5 s each, with 4 maps at 4096.
+
+**Which photo Tripo gets** (`jobs._tripo_34`; `qa.pick_34`, `pick_fallback`, `draw_34`, `check_34`). This happens before any Tripo credit is spent:
+1. **A photo a person chose** (uploaded on a low-score card, or pressed in the regenerate form: `photo_locked`) goes as it is. No labels, no drawing.
+2. **Else the best real 3/4 photo**, by Gemini's photo labels (section 23): a front 3/4 first, then a white background, then confidence. Photos that are low confidence, show another setup, or are back or detail shots are skipped. For a bed, the foot-end 3/4 (labelled "back") also counts.
+3. **Else Gemini draws a 3/4** from up to 4 real photos of the same setup (`[qa] image_model`) and checks it in two ways:
+   - **Outline:** the drawn object's width-to-height ratio must be possible for a 3/4 view of the listed W×D×H.
+   - **Gemini:** it must show the same product, with nothing invented, nothing missing, and the right proportions.
+   
+   A rejected drawing is redrawn once, with the reason. A kept drawing is saved as `source_images/_drawn/34_tryN.png`, recorded in `_drawn/three_quarter.json` (`ok`, `file`, `score`, `from`) and reused by later runs. It costs about $0.10 a drawing on the Gemini key, with no credits.
+4. **If both drawings are rejected**, the best real photo goes (a straight front on white, then any clean view). `three_quarter.json` records `ok: false` with the reasons, and the card says so.
+
+Without a Gemini key, the job's own photo goes. The version's info line names the choice, for example "Tripo got one real three-quarter photo (front 3/4, white background)".
+
+**A low score waits for a person** (`autoqa.gate`, `pipeline.user_photo`, `web/index.html`):
+- **65 or more:** accepted as before.
+- **Under 65:** the row gets `qa_decision.action = "needs_person"` and a red row in the Models sheet's failures tab ("waiting for a person"). No decision is made and nothing is spent: there is no paid retry and no Meshy run. This replaces the retry rows of section 22.
+- **The card's two buttons:**
+  - **Upload a photo → Tripo · 45 credits:** POST `/api/rows/<id>/user_photo` (`{name, data}` as a data URL). The photo must be a JPEG, PNG, WebP or AVIF; empty files, PDFs and the like are refused. It is saved as `source_images/user_<time>.jpg` (`.png` for a PNG) and added to meta's photos with the label "uploaded". A regenerate decision `by: "person"` is then made with `user_photo`, a new seed and the card's mode; the spec gets `photo_locked`. The usual undo window and the daily-cap check apply.
+  - **Send to Meshy · 30 credits:** the normal Meshy regenerate decision, with Meshy's own photo choice (`auto_photos`).
+- **A photo pressed in the regenerate form** is also sent as it is (`photo_picked`).
+
+**Quad budgets raised** (`rules.toml`):
+
+| Category | Before | Now |
+|---|---|---|
+| Small tables, ottomans, benches | 1,500 | 4,000 |
+| Dining chairs, stools | 2,000 | 5,000 |
+| Dining tables, desks | 2,000 | 4,000 |
+| Accent chairs | 3,500 | 5,000 |
+
+**Cap holds start again by themselves** (`Worker.requeue_cap_holds`, every 60 s while not paused):
+- A job blocked by the daily credit cap is queued again once it fits: on the next day, or after the cap was raised.
+- Only this PC's jobs are requeued, and never one a later run for the same card replaced. A low Tripo balance still needs a person.
+- Today's count includes paid runs already queued, so one pass never requeues more than fits. The cap is checked again when the job pays.
+
+**Tests:**
+- `tests/test_h31.py` (14 tests, no network): the 3/4 pick (a bed's foot-end too), the fallback, the outline check, the H3.1 body and face-limit clamp, 45 credits for every Tripo mode, a low score held with no decision or job, a high score accepted, Upload a photo (a locked spec at 45 credits, the photo saved, junk refused), and cap holds (one of two requeued, a balance hold left, a replaced hold left).
+- `tests/e2e_qa.py` (fake Tripo, Meshy and Gemini, real Blender and server; the fixture `tripo_raw.glb` is a real H3.1 FBX):
+  - **A:** a real 3/4 photo goes to H3.1, the FBX is converted, the card scores 55 and waits. "Send to Meshy" then scores 70 and is accepted.
+  - **B:** a card that scores 88 is accepted.
+  - **D:** a drawn 3/4 passes its check and scores 40. Upload a photo then goes to Tripo as it is and is accepted.
+  - **C:** both drawings are rejected, the best real photo goes, and the card scores 30 and waits.
+  - The ledger comes to 255, and nothing is spent while a card waits.
+- `tests/e2e.py`, `e2e_links.py`, `e2e_sizes.py` and `e2e_stop.py` now expect 45 credits per Tripo run and the H3.1 body. All four pass (2026-11-25). e2e.py's ledger is 120 (45 + 30 + 45). Their fixtures folder also needs `side_18.jpg` (named `black_wood_office_set_side_18.jpg`) and `fruit.jpg`.
+
+**Not checked yet:** a live paid run through the tool (about 135 credits on 3 products: one with a real 3/4, one without, one bed), and the two card buttons in a browser.

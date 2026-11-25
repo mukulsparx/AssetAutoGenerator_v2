@@ -207,12 +207,12 @@ class Send(Base):
         self.store.place(name, "Shop"); self.store.save_row(name, f"{name}-v1", {"status": "review", "version": 1})
         r = self.run_links([(OSLO, {})])["results"][0]
         self.assertEqual(r["status"], "skipped"); self.assertIn("already has a card (review v1)", r["reason"])
-        self.cfg.data["credits"]["daily_cap"] = 50
+        self.cfg.data["credits"]["daily_cap"] = 40          # under one H3.1 run (45)
         r = self.run_links([(OSLO, {})], regenerate=True)["results"][0]
         self.assertIn("daily cap", r["reason"])
-        self.cfg.data["credits"]["daily_cap"] = 1500; batch.tripo_balance = lambda cfg: 50
+        self.cfg.data["credits"]["daily_cap"] = 1500; batch.tripo_balance = lambda cfg: 40
         r = self.run_links([(OSLO, {})], regenerate=True)["results"][0]
-        self.assertEqual(r["reason"], "Tripo balance 50 would run out")
+        self.assertEqual(r["reason"], "Tripo balance 40 would run out")
         self.assertEqual(self.store.jobs(active_only=True), [])
 
     def test_bad_requests(self):

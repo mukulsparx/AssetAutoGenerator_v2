@@ -71,11 +71,11 @@ try:
              {"suffix": "tall", "dims_in": [32, 22, 90], "own_design": True, "photo": one}]
     r = api("POST", "/api/intake", {"product": {"title": "Sz Lateral File Cabinet", "url": "", "vendor": "CORT", "dims_in": [32, 22, 78]},
                                     "overrides": {"name": "sz_cab", "units": 1, "close_back": False, "sizes": sizes}, "images": cab, "export_dir": str(vend)})
-    assert r.get("asset") == "sz_cab" and r["cost"] == 240 and len(r["size_jobs"]) == 1, r
+    assert r.get("asset") == "sz_cab" and r["cost"] == 90 and len(r["size_jobs"]) == 1, r
     meta = json.loads((assets / "CORT" / "sz_cab" / "meta.json").read_text())
     U = meta["uuid"]; Z = {z["suffix"]: z for z in meta["sizes"]}
     assert set(Z) == {"std", "wide", "narrow", "tall"} and Z["std"]["main"] and Z["std"]["dims_in"] == [32, 22, 78] and len({z["uuid"] for z in Z.values()} | {U}) == 5
-    ok.append("intake: 4 sizes saved (names cleaned: Wide -> wide), each with its own UUID; cost 120 + 120 for the own-design size")
+    ok.append("intake: 4 sizes saved (names cleaned: Wide -> wide), each with its own UUID; cost 45 + 45 for the own-design size")
     main = wait(lambda: rows().get("sz_cab-v1"), "main card")
     tall = wait(lambda: next((r for k, r in rows().items() if k.startswith("sz_cab_tall-")), None), "own-design card")
     assert main["uuid"] == U and tall["uuid"] == Z["tall"]["uuid"] and tall["size"] == "tall" and [round(x) for x in tall["dims_listed_cm"]] == [81, 56, 229], tall

@@ -261,8 +261,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const PER_PAGE = 10;
-const MAX_QUADS = { 'P2 (Smart Mesh)': 25000, 'Meshy 7.1': 12000 };   // Tripo: P2 only (2026-10-06)
-let TRIPO_COST = 120;
+const MAX_QUADS = { 'HD (H3.1)': 25000, 'Meshy 7.1': 12000 };   // Tripo: H3.1 only (2026-11-25; P2 until then)
+let TRIPO_COST = 45;
 const MESHY_CREDITS = 30, MESHY_MAX_PHOTOS = 4;
 // Auto smooth is the default. Remove duplicate layers is offered only when the z-fighting check found overlapping panels.
 const STEP_INFO = [
@@ -548,8 +548,15 @@ function qaDecisionHTML(a) {
   if (d.action === 'qa_stopped') return `<div class="qadec needs_person">QA was stopped, so this card has no score and QA won't accept or retry it. Decide it yourself, or press Score again in the Gemini QA panel.</div>`;
   const msg = d.action === 'accepted' ? `Accepted automatically by QA: ${who}, ${v}, ${d.score}/100.`
     : d.action === 'retry' ? `QA scored the best version ${d.score}/100, so it is retrying on ${d.drawn ? (d.service === 'meshy' ? 'Meshy 7.1 with the photo plus Gemini-drawn views' : 'Tripo, multi-view from Gemini-drawn views (only one photo exists)') : d.service === 'meshy' ? 'Meshy 7.1' : 'Tripo with a new seed'}.`
+    : d.action === 'needs_person' ? `QA scored the best version ${d.score}/100 (${who}, ${v}), under ${qaCfg.accept}. Nothing more was spent. Choose what to try next, or decide below.`
     : `QA could not get above ${qaCfg.low}: best was ${d.score}/100 (${who}, ${v}) after the retries. A person needs to decide.`;
-  return `<div class="qadec ${d.action}">${esc(msg)}${d.reason ? ` <span class="qsub">${esc(d.reason)}</span>` : ''}</div>`;
+  // Low score (Mukul, 2026-11-25): QA no longer retries by itself. Two choices while nobody has decided the card:
+  // a) upload a photo -> Tripo gets exactly that photo (no Gemini drawing); b) send to Meshy.
+  const acts = d.action === 'needs_person' && !decisions[a.id] && !jobBusy(a) ? `<div class="qaacts" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn small" data-userphoto>Upload a photo → Tripo · ${TRIPO_COST} credits</button><input type="file" accept="image/jpeg,image/png,image/webp" data-userphoto-file hidden>
+      <button class="btn small" data-tomeshy>Send to Meshy · ${MESHY_CREDITS} credits</button>
+      <span class="qsub" data-qaact-err></span></div>` : '';
+  return `<div class="qadec ${d.action}">${esc(msg)}${d.reason ? ` <span class="qsub">${esc(d.reason)}</span>` : ''}${acts}</div>`;
 }
 function liveOpts(a, side, steps, t) {
   const base = baseOf(a, side), who = serviceName(side);
@@ -591,11 +598,11 @@ function defaultMeshyPhotos(a) {
 function defaultRegen(a) {
   // First fail on a Tripo result goes to Meshy; once a Meshy result exists, the next try defaults back to Tripo.
   const service = hasMeshy(a) ? 'tripo' : 'meshy';
-  return { service, mode: 'P2 (Smart Mesh)', quad_budget: a.quad_budget, photo: a.photo, photos: defaultMeshyPhotos(a), autofix: true, new_seed: hasMeshy(a) };
+  return { service, mode: 'HD (H3.1)', quad_budget: a.quad_budget, photo: a.photo, photos: defaultMeshyPhotos(a), autofix: false, new_seed: hasMeshy(a) };
 }
 function regenHTML(a, d) {
   const rg = { ...defaultRegen(a), ...(d.regen || {}) }, meshy = rg.service === 'meshy', photos = a.photos || [];
-  const max = MAX_QUADS[meshy ? 'Meshy 7.1' : 'P2 (Smart Mesh)'] || 25000;
+  const max = MAX_QUADS[meshy ? 'Meshy 7.1' : 'HD (H3.1)'] || 25000;
   return `<div class="regen" data-regen ${d.result === 'regenerate' ? '' : 'hidden'}>
       <div style="flex-basis:100%"><div class="seg" role="group" aria-label="Service" style="display:inline-flex">
         <button type="button" data-service="meshy" aria-pressed="${meshy}">Meshy 7.1</button><button type="button" data-service="tripo" aria-pressed="${!meshy}">Tripo</button>
@@ -604,7 +611,7 @@ function regenHTML(a, d) {
         <select id="mode-${esc(a.id)}" data-rmode>${Object.keys(MAX_QUADS).filter(m => m !== 'Meshy 7.1').map(m => `<option ${m === rg.mode ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
       <label for="quads-${esc(a.id)}">Quad budget <span data-maxq>(max ${fmt(max)})</span>
         <input type="number" id="quads-${esc(a.id)}" data-rquads min="100" max="${max}" step="100" value="${rg.quad_budget}"></label>
-      <label class="chk" data-tripo-only ${meshy ? 'hidden' : ''}><input type="checkbox" id="autofix-${esc(a.id)}" data-rautofix ${rg.autofix !== false ? 'checked' : ''}> Tripo image auto-fix</label>
+      <label class="chk" data-tripo-only ${meshy ? 'hidden' : ''}><input type="checkbox" id="autofix-${esc(a.id)}" data-rautofix ${rg.autofix ? 'checked' : ''}> Tripo image auto-fix</label>
       <label class="chk" data-tripo-only ${meshy ? 'hidden' : ''}><input type="checkbox" id="newseed-${esc(a.id)}" data-rnewseed ${rg.new_seed ? 'checked' : ''}> New seed</label>
       <span class="notice" data-cost></span>
       ${photos.length ? `<div style="flex-basis:100%"><div class="notice" style="margin-bottom:4px" data-photohint></div><div class="photos" role="group" aria-label="Photos sent for generation">
@@ -831,7 +838,11 @@ document.addEventListener('click', async e => {
       const on = ph.getAttribute('aria-pressed') === 'true', n = card.querySelectorAll('[data-photo][aria-pressed="true"]').length;
       if (on && n > 1) ph.setAttribute('aria-pressed', 'false');
       else if (!on && n < MESHY_MAX_PHOTOS) ph.setAttribute('aria-pressed', 'true');
-    } else card.querySelectorAll('[data-photo]').forEach(b => b.setAttribute('aria-pressed', String(b === ph)));
+    } else {
+      card.querySelectorAll('[data-photo]').forEach(b => b.setAttribute('aria-pressed', String(b === ph)));
+      // A photo the reviewer pressed goes to Tripo as it is: no Gemini pick, no drawn 3/4 (2026-11-25).
+      draft[id] = { ...(draft[id] || {}), regen: { ...(draft[id]?.regen || defaultRegen(a)), photo_picked: true } };
+    }
     syncRegen(card); return;
   }
   const pick = e.target.closest('[data-pick]');
@@ -860,7 +871,7 @@ document.addEventListener('click', async e => {
       if (!(r.quad_budget >= 100 && r.quad_budget <= max)) { err.hidden = false; err.textContent = `Enter a quad budget between 100 and ${fmt(max)}.`; return; }
       if (r.service === 'meshy' && !(r.photos || []).length) { err.hidden = false; err.textContent = 'Pick at least one photo for Meshy.'; return; }
       rec.regen = r.service === 'meshy' ? { service: 'meshy', model: 'meshy-7.1', quad_budget: r.quad_budget, photos: r.photos, topology: 'quad', pbr: true }
-        : { service: 'tripo', mode: r.mode, quad_budget: r.quad_budget, autofix: r.autofix, new_seed: r.new_seed, photo: r.photo };
+        : { service: 'tripo', mode: r.mode, quad_budget: r.quad_budget, autofix: r.autofix, new_seed: r.new_seed, photo: r.photo, photo_picked: !!r.photo_picked };
     } else if (d.result === 'pass' || d.result === 'fail') { if (d.result === 'fail' && !(d.note || '').trim()) { err.hidden = false; err.textContent = 'Add a note saying what should change, so the rebuild knows what to fix.'; return; } }
     else rec.steps = stepsOf(a, d.result);
     sub.disabled = true; sub.textContent = 'Saving…';
@@ -906,11 +917,11 @@ function syncRegen(card, quiet = false) {
   if (Number(qi.value) > max) qi.value = max;
   const ns = $('[data-rnewseed]', card).checked;
   const sb = $('[data-submit]', card); if (sb && draft[id]?.result === 'regenerate') sb.textContent = `Submit · ${meshy ? MESHY_CREDITS : TRIPO_COST} credits`;
-  $('[data-cost]', card).textContent = meshy ? `Meshy 7.1 · quad topology · PBR · no seed · ${MESHY_CREDITS} credits.` : `Tripo P2, mesh then a separate texture step. ${ns ? 'New seed' : 'Same seed'}. ${TRIPO_COST} credits.`;
+  $('[data-cost]', card).textContent = meshy ? `Meshy 7.1 · quad topology · PBR · no seed · ${MESHY_CREDITS} credits.` : `Tripo HD (H3.1): mesh and 4K PBR texture in one step, quad. ${cur.photo_picked ? 'Sends the photo you pressed as it is' : 'Sends one 3/4 photo (a real one, or one Gemini draws and checks)'}. ${ns ? 'New seed' : 'Same seed'}. ${TRIPO_COST} credits.`;
   const hint = $('[data-photohint]', card); if (hint) hint.textContent = meshy ? `Photos sent to Meshy (up to ${MESHY_MAX_PHOTOS}, any angles; the first is the front)` : 'Photo sent to Tripo';
   const pressed = [...card.querySelectorAll('[data-photo][aria-pressed="true"]')].map(b => b.dataset.photo);
   if (quiet) return;
-  draft[id] = { ...(draft[id] || {}), regen: { service: cur.service, mode, quad_budget: Math.round(Number(qi.value)), autofix: $('[data-rautofix]', card).checked, new_seed: ns,
+  draft[id] = { ...(draft[id] || {}), regen: { service: cur.service, mode, quad_budget: Math.round(Number(qi.value)), autofix: $('[data-rautofix]', card).checked, new_seed: ns, photo_picked: !meshy && !!cur.photo_picked,
     photo: meshy ? cur.photo : (pressed[0] || a.photo), photos: meshy ? keepOrder(cur.photos, pressed) : cur.photos } };
 }
 document.addEventListener('input', e => {
@@ -919,9 +930,20 @@ document.addEventListener('input', e => {
   if (e.target.matches('[data-note]')) { draft[id] = { ...(draft[id] || {}), note: e.target.value }; return; }
   if (e.target.matches('[data-rmode], [data-rquads], [data-rautofix], [data-rnewseed]')) { syncRegen(card); return; }
 });
-document.addEventListener('change', e => {
+document.addEventListener('change', async e => {
   const sf = e.target.closest('[data-sizeform]');
   if (sf) { const a = assets.find(x => x.id === sf.closest('.card').dataset.id); if (a) syncSizeForm(sf, a); return; }
+  if (e.target.matches('[data-userphoto-file]')) {             // low-score card, option a: this exact photo -> Tripo
+    const f = e.target.files?.[0], id = e.target.closest('.card').dataset.id, box = e.target.closest('.qaacts');
+    const btn = box.querySelector('[data-userphoto]'), errEl = box.querySelector('[data-qaact-err]'); if (!f) return;
+    if (f.size > 40e6) { errEl.textContent = 'That photo is over 40 MB.'; return; }
+    btn.disabled = true; btn.textContent = 'Uploading…'; errEl.textContent = '';
+    try { const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => bad(new Error('Could not read the file.')); r.readAsDataURL(f); });
+      const res = await api('POST', `/api/rows/${id}/user_photo`, { name: f.name, data });
+      decisions[id] = res?.decision || { result: 'regenerate' }; if (res?.job) jobsLocal[id] = { ...res.job, status: 'queued' }; renderedKey = ''; render(); }
+    catch (x) { btn.disabled = false; btn.textContent = `Upload a photo → Tripo · ${TRIPO_COST} credits`; errEl.textContent = x.message; }
+    return;
+  }
   const card = e.target.closest('.card'); if (!card) return; const id = card.dataset.id, a = assets.find(x => x.id === id);
   if (e.target.matches('[data-rmode], [data-rautofix], [data-rnewseed]')) { syncRegen(card); return; }
   if (e.target.matches('[data-step]')) {
@@ -1022,6 +1044,17 @@ document.addEventListener('click', async e => {
     try { await api('POST', `/api/rows/${id}/${act}`, {}); const a = assets.find(x => x.id === id); if (a) { a.status = act === 'discard' ? 'discarded' : 'review'; if (act === 'discard') a.discarded_at = new Date().toISOString(); }
       if (act === 'discard') delete decisions[id]; renderedKey = ''; render(); }
     catch (x) { dy.textContent = x.message; } return; }
+  if (e.target.closest('[data-userphoto]')) { e.target.closest('.qadec').querySelector('[data-userphoto-file]').click(); return; }
+  const tm = e.target.closest('[data-tomeshy]');
+  if (tm) { const id = tm.closest('.card').dataset.id, a = assets.find(x => x.id === id), errEl = tm.parentElement.querySelector('[data-qaact-err]');
+    const photos = defaultMeshyPhotos(a); if (!photos.length) { errEl.textContent = 'This product has no photo for Meshy.'; return; }
+    tm.disabled = true; tm.textContent = 'Sending…';
+    const rec = { asset: id, asset_name: a.asset_name, version: a.version || 1, result: 'regenerate', note: `Sent to Meshy after QA ${a.qa_decision?.score}/100`,
+      submitted_at: new Date().toISOString(), handled: false,
+      regen: { service: 'meshy', model: 'meshy-7.1', quad_budget: Math.min(a.quad_budget || 12000, MAX_QUADS['Meshy 7.1']), photos, topology: 'quad', pbr: true, auto_photos: true } };
+    try { const res = await api('POST', '/api/decisions/' + id, rec); decisions[id] = res?.decision || rec; if (res?.job) jobsLocal[id] = { ...res.job, status: 'queued' }; renderedKey = ''; render(); }
+    catch (x) { tm.disabled = false; tm.textContent = `Send to Meshy · ${MESHY_CREDITS} credits`; errEl.textContent = x.message; }
+    return; }
   const qs = e.target.closest('[data-qa-score]');
   if (qs) { const id = qs.closest('.card').dataset.id; qs.disabled = true;
     try { const r = await api('POST', `/api/rows/${id}/qa`, { force: true }); jobsLocal[id] = { id: r.job.id, kind: 'qa', status: 'queued' }; renderedKey = ''; render(); }

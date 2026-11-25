@@ -3,7 +3,8 @@ import json, re, time
 from . import rules as R
 from .store import now_iso
 
-MODE_KEY = {"HD (H3)": "p2", "Smart Mesh (P1)": "p2", "P2 (Smart Mesh)": "p2", "hd": "p2", "smart": "p2", "p2": "p2"}   # P2 only (2026-10-06)
+# One Tripo mode: P2 from 2026-10-06, HD (H3.1) from 2026-11-25 (rules.toml [modes]); older labels map onto it
+MODE_KEY = {"HD (H3.1)": "p2", "HD (H3)": "p2", "Smart Mesh (P1)": "p2", "P2 (Smart Mesh)": "p2", "hd": "p2", "smart": "p2", "p2": "p2"}
 ACCEPT = {"tripo", "right", "meshy", "prev", "pass"}
 
 
@@ -37,6 +38,27 @@ def submit_decision(cfg, store, row_id, rec) -> dict:
     else: raise ValueError(f"unknown result {result}")
     if job: rec["job"] = job["id"]; store.save_decision(row_id, rec)
     return {"decision": rec, "job": job and {"id": job["id"], "kind": job["kind"], "not_before": job["not_before"]}}
+
+
+def user_photo(cfg, store, row_id, name: str, data: bytes) -> dict:
+    """Low-score card, option a (Mukul, 2026-11-25): a person uploads a photo and it goes to Tripo exactly as it is
+    (no Gemini pick, no drawn 3/4). Saved in source_images as user_<time>.jpg/.png, then queued like Fail - regenerate."""
+    from . import images as IM
+    row = store.row(row_id)
+    if not row: raise KeyError(row_id)
+    if not data or len(data) < 1000: raise ValueError("The photo is empty.")
+    kind = IM.sniff(data)
+    if kind not in ("jpeg", "png", "webp", "avif"): raise ValueError("Upload a JPEG, PNG or WebP photo.")
+    asset = store._find_asset(row_id); sdir = store.adir(asset) / "source_images"; sdir.mkdir(parents=True, exist_ok=True)
+    p = sdir / f"user_{time.strftime('%Y%m%d_%H%M%S')}{'.png' if kind == 'png' else '.jpg'}"
+    p.write_bytes(data); IM.normalize_source(p)
+    meta = store.meta(asset)
+    meta["photos"] = [x for x in meta.get("photos", []) if x.get("file") != p.name] + [{"file": p.name, "label": "uploaded", "thumb": f"source_images/{p.name}", "uploaded_from": (name or "")[:120]}]
+    store.save_meta(asset, meta)
+    rec = {"result": "regenerate", "by": "person", "note": "Photo uploaded by a person" + (f" ({name[:80]})" if name else ""),
+           "regen": {"service": "tripo", "mode": row.get("regen_mode") or row.get("mode"), "quad_budget": row.get("quad_budget"),
+                     "photo": p.name, "user_photo": True, "new_seed": True, "autofix": False}}
+    return submit_decision(cfg, store, row_id, rec)
 
 
 def undo_decision(store, row_id) -> bool:
@@ -76,16 +98,20 @@ def regen_spec(cfg, store, asset, row_id, row, rg) -> dict:
     mode = MODE_KEY.get(rg.get("mode") or row.get("mode"), "p2")
     seeds = None if rg.get("new_seed") else (row.get("seeds") or None)
     photo = rg.get("photo") or row.get("photo")
+    # photo_locked: a person chose this exact photo (uploaded it, or pressed it in the regenerate form), so the HD run
+    # sends it as it is: no Gemini pick, no drawn 3/4 (Mukul, 2026-11-25).
+    locked = bool(rg.get("user_photo") or rg.get("photo_picked"))
     return {**base, "service": "tripo", "mode": mode, "mode_label": cfg.rules["modes"][mode]["label"], "photos": [photo],
-            "quad_budget": R.clamp_quads(per_unit, mode, cfg.rules), "seeds": seeds, "autofix": rg.get("autofix", True),
-            "cost": tripo_cost(cfg, mode), "ref_photo": photo,
+            "quad_budget": R.clamp_quads(per_unit, mode, cfg.rules), "seeds": seeds, "autofix": rg.get("autofix", False),
+            "cost": tripo_cost(cfg, mode), "ref_photo": photo, "photo_locked": locked, "user_photo": bool(rg.get("user_photo")),
             "auto_photos": True,                      # v2: a straight front + another straight view -> multi-view run
             "drawn_views": bool(rg.get("drawn_views"))}  # v2: single-photo product -> Gemini-drawn views (checked)
 
 
 def tripo_cost(cfg, mode) -> int:
-    """Credits for one Tripo run: P2 mesh + the separate texture step; older modes as before."""
-    from .jobs import is_p2
+    """Credits for one Tripo run: HD (H3.1) in one task; P2 mesh + the separate texture step; older modes as before."""
+    from .jobs import is_p2, is_h31
+    if is_h31(cfg, mode): return int(cfg.get("credits", "tripo_h31", 45))
     if is_p2(cfg, mode): return int(cfg.get("credits", "tripo_p2", 100)) + int(cfg.get("credits", "tripo_texture", 30))
     return int(cfg.get("credits", "tripo_hd" if mode == "hd" else "tripo_smart_mesh", 30 if mode == "hd" else 50))
 
@@ -135,7 +161,7 @@ def add_product(cfg, store, product: dict, overrides: dict, images: dict[str, by
     if not photos or not photos[0]: raise ValueError("No usable photo for generation.")
     mode = pl["mode"]; cost = tripo_cost(cfg, mode)
     spec = {**common, "service": "tripo", "mode": mode, "mode_label": pl["mode_label"], "photos": photos, "quad_budget": pl["quad_budget"],
-            "units": pl["units"], "close_back": pl["close_back"], "pp": pl["postprocess"], "autofix": True, "seeds": None, "auto_photos": True,
+            "units": pl["units"], "close_back": pl["close_back"], "pp": pl["postprocess"], "autofix": False, "seeds": None, "auto_photos": True,
             "ref_photo": pl["photos"]["single"] if not pl["photos"]["multi"] else photos[0], "cost": cost,
             "notes": ("Multi-image: front + back. " if pl["photos"]["multi"] else "") + (f"Set of {pl['units']} identical units: one unit generated, copied side by side. " if pl["units"] > 1 else "")}
     job = store.new_job(name, "generate", spec, not_before=time.time() + int(cfg.get("credits", "undo_seconds", 30)), row_id=row_id)
@@ -319,7 +345,7 @@ def queue_own_designs(cfg, store, name, pl, sizes, delay=None):
             mode = pl["mode"]; cost = tripo_cost(cfg, mode)
             pp = {**pl["postprocess"], "dims_in": z["dims_in"]}
             spec = {**common, "service": "tripo", "mode": mode, "mode_label": pl["mode_label"], "photos": [z["photo"]], "quad_budget": pl["quad_budget"],
-                    "units": 1, "close_back": pl["close_back"], "pp": pp, "autofix": True, "seeds": None, "auto_photos": False,
+                    "units": 1, "close_back": pl["close_back"], "pp": pp, "autofix": False, "seeds": None, "auto_photos": False,
                     "ref_photo": z["photo"], "cost": cost, "notes": f"The {z['suffix']} size has its own design: generated from its own photo."}
             j = store.new_job(name, "generate", spec, not_before=time.time() + (delay if delay is not None else int(cfg.get("credits", "undo_seconds", 30))), row_id=row_id)
         for zz in meta.get("sizes") or []:

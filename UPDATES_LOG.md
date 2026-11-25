@@ -12,6 +12,49 @@ An entry says:
 
 ---
 
+## 2026-11-25: Tripo HD (H3.1) from one 3/4 photo; a low score waits for a person
+
+- **What:**
+  - Every Tripo run now uses HD (H3.1, `v3.1-20260211`) in one task: quad mesh, detailed PBR texture, 45 credits. Before, it was P2 plus a separate texture task at 120 credits.
+  - Tripo gets ONE photo, a three-quarter view, chosen before any credit is spent. In order: a photo a person chose, else the best real 3/4, else a 3/4 drawn by Gemini that passes a check (one redraw allowed), else the best real photo.
+  - Tripo sends back an FBX. Blender converts it to GLB, then post-processing runs as before.
+  - A score under 65 no longer retries or goes to Meshy on its own. The card waits with two buttons: **Upload a photo → Tripo** (the photo goes as it is, with no new drawing) and **Send to Meshy**.
+  - Quad budgets raised:
+    - small tables, ottomans and benches: 1,500 → 4,000
+    - dining chairs and stools: 2,000 → 5,000
+    - dining tables and desks: 2,000 → 4,000
+    - accent chairs: 3,500 → 5,000
+  - Jobs held by the daily credit cap start again by themselves once they fit.
+- **Why:**
+  - The artists get good models on the Tripo website from HD with one 3/4 photo, and ask Gemini or ChatGPT to draw one when there isn't one. 5 HD runs through the API on 2026-11-23 matched the website.
+  - Mukul approved the plan on 2026-11-25 and decided the two-button flow and the higher counts. Full write-up: `SPEC.md` section 42.
+- **Files:**
+  - `autogen/clients.py`: the H3.1 body
+  - `autogen/jobs.py`: the 3/4 choice, FBX → GLB, the 45-credit cost (read from `[credits] tripo_h31`, default 45; `config.toml` not changed)
+  - `autogen/qa.py`: the 3/4 pick, drawing and check
+  - `autogen/autoqa.py`: a low score waits for a person
+  - `autogen/pipeline.py`: Upload a photo; the Tripo cost
+  - `autogen/server.py`: the `/api/rows/<id>/user_photo` route
+  - `autogen/worker.py`: cap holds requeued
+  - `blender_scripts/fbx_to_glb.py` (new)
+  - `rules.toml`: H3.1 modes, quad budgets
+  - `web/index.html`, `web/intake.html`: the two buttons, the HD labels and costs
+  - `tests/test_h31.py` (new), `tests/test_links.py`, `tests/mock_apis.py`
+  - `tests/e2e.py`, `e2e_links.py`, `e2e_qa.py`, `e2e_sizes.py`, `e2e_stop.py`
+  - `SPEC.md`: new section 42; sections 22, 23, 25 and 29 marked as replaced where they changed
+- **Checked:**
+  - All 17 unit test files pass, including `test_h31.py` (14 tests).
+  - All 6 end-to-end scripts pass with fake Tripo, Meshy and Gemini and real Blender:
+    - `e2e_qa.py`: four cases (real 3/4, accepted, drawn 3/4, both drawings rejected), ledger 255
+    - `e2e.py`: ledger 120
+    - `e2e_links.py`, `e2e_stop.py`: ledger 45
+    - `e2e_sizes.py`
+  - On the 5 HD FBX files from 2026-11-23, the tool's FBX → GLB conversion matched the hand conversions.
+- **Not checked:**
+  - No live paid run through the tool yet (planned: about 135 credits on 3 products).
+  - The two card buttons have not been clicked in a browser.
+  - The Gemini 3/4 drawing has run against a fake Gemini only.
+
 ## 2026-11-23: Updates Log started
 
 - **What:** this file was added. The two entries below were written from the files themselves, because no record of them existed outside the code.

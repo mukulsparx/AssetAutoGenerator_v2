@@ -93,9 +93,20 @@ class Tripo:
     def balance(self) -> dict: return self._j("GET", "/account/balance")
 
     @classmethod
-    def body(cls, mode_cfg: dict, quads: int, files: list, seeds: dict, autofix=True) -> dict:
+    def body(cls, mode_cfg: dict, quads: int, files: list, seeds: dict, autofix=False) -> dict:
         """Seed rule: explicit seeds on every task. files: [token] or [front, left, back, right] tokens (None = no photo)."""
         version = mode_cfg["model_version"]
+        if version.startswith("v3.1"):
+            # H3.1 "HD" (2026-11-25): the artists' website recipe, tested through the API on 2026-11-23 (5 runs, 45
+            # credits each): detailed texture (4K PBR: base colour, roughness, metallic, normal) in the same task, quad
+            # topology, standard geometry. With quad=true face_limit counts quads (lands about 2-8% over) and Tripo
+            # returns an FBX, which jobs.generate converts to GLB in Blender. Image autofix off: it may repaint the photo.
+            b = {"model": version, "texture": True, "pbr": True, "texture_quality": "detailed",
+                 "geometry_quality": "standard", "quad": True, "face_limit": max(48, min(25000, int(quads))),
+                 "model_seed": int(seeds["model_seed"]), "texture_seed": int(seeds["texture_seed"])}
+            if len(files) == 1: b.update(type="image_to_model", input=files[0], enable_image_autofix=bool(autofix))
+            else: b.update(type="multiview_to_model", inputs=[{v: f} for v, f in zip(cls.VIEWS, files) if f])
+            return b
         if version.upper().startswith("P2"):
             # P2 (2026-10-06): the mesh only; the texture is a separate task (texture()). face_limit 48-50,000 triangles.
             b = {"model": version, "texture": False, "pbr": False, "face_limit": max(48, min(50000, int(quads) * 2)),

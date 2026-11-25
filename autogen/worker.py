@@ -24,10 +24,11 @@ class Worker:
         threading.Thread(target=self._loop, name="autogen-worker", daemon=True).start(); return self
 
     def _loop(self):
-        seen = 0.0
+        seen = held = 0.0
         while not self.stop.is_set():
             try:
                 if time.time() - seen > self.store.SEEN_S: self.store.seen(self.paused); seen = time.time()
+                if time.time() - held > 60 and not self.paused: self.requeue_cap_holds(); held = time.time()
                 self.tick()
             except Exception: traceback.print_exc()
             self.stop.wait(self.poll)
@@ -104,6 +105,27 @@ class Worker:
                          owner=self.store.machine)            # the PC where Try again was pressed runs it
                 self.store.job_log(j, "started again after the stop" if was == "stopped" else "retry requested"); return True
         return False
+
+    def requeue_cap_holds(self):
+        """Jobs held by the daily credit cap start again by themselves once they fit (2026-11-25): the next day, or after
+        daily_cap was raised. Only this PC's jobs, only cap holds (a low balance still needs a person), and never one a
+        later run for the same card replaced. The cap is checked again when the job pays, so this can't overspend."""
+        st = self.store; cap = int(self.cfg.get("credits", "daily_cap", 1500))
+        jobs = st.jobs(active_only=False); today = None; n = 0
+        for j in jobs:
+            if j["status"] != "blocked" or not str(j.get("error") or "").startswith("Daily credit cap") or not st.mine(j): continue
+            if j.get("row_id") and any(k["id"] > j["id"] and k.get("row_id") == j["row_id"] and k["kind"] == j["kind"] and k["status"] != "cancelled" for k in jobs):
+                continue
+            spec = j.get("spec") or {}
+            cost = self.ctx.cost(spec.get("service") or "tripo", spec.get("mode"))
+            if today is None:                 # spent today + paid runs already queued (one started on an earlier pass hasn't paid yet)
+                today = st.credits_today() + sum(self.ctx.cost((k.get("spec") or {}).get("service") or "tripo", (k.get("spec") or {}).get("mode"))
+                                                 for k in jobs if k["status"] == "queued" and k["kind"] == "generate" and st.mine(k))
+            if today + cost > cap: continue
+            today += cost; n += 1
+            j.update(status="queued", error=None, not_before=0, stage="queued")
+            st.save_job(j); st.job_log(j, f"started again by itself: the daily cap has room now ({today} of {cap} with this run)")
+        return n
 
     def take(self, job_id):
         """"Run here" on a job waiting for the PC that queued it (2026-10-29): this PC runs it instead. Refused while

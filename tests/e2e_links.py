@@ -96,7 +96,7 @@ try:
     # --- 2: each link loaded
     load = lambda u, row=None, **k: api("POST", "/api/links/load", {"url": u, "vendor": "Test Shop", "row": row or {}, **k})
     c1 = load(oslo)
-    assert c1["dims_in"] == [30.0, 32.0, 36.0] and c1["dims_source"].startswith("product data") and c1["paid"] and c1["cost"] == 120, c1
+    assert c1["dims_in"] == [30.0, 32.0, 36.0] and c1["dims_source"].startswith("product data") and c1["paid"] and c1["cost"] == 45, c1
     assert c1["facts"]["sku"] == "OS-123A" and c1["facts"]["price"] == 1299.0 and c1["facts"]["currency"] == "AUD" and len(c1["images"]) == 2, c1
     assert c1["name"] == "oslo_lounge_chair" and not c1["problem"] and not c1["cards"], c1
     ok.append(f"schema.org page: {c1['dims_in']} in from cm, {c1['category_label']}, {c1['cost']} credits, SKU/price/photos read")
@@ -123,8 +123,8 @@ try:
     got = [(r["asset"], r["status"]) for r in run["results"]]
     assert got == [("oslo_lounge_chair_walnut", "queued"), ("mystery_side_table", "skipped"), ("", "skipped"), ("oslo_lounge_chair_walnut", "skipped")], run
     assert "no listed size" in run["results"][1]["reason"] and "Living Spaces" in run["results"][2]["reason"] and "same asset name" in run["results"][3]["reason"], run
-    assert not run["error"] and run["results"][0]["cost"] == 120, run
-    ok.append("Send: 1 queued (120 cr), skipped: no size, Living Spaces, the same product twice in one list")
+    assert not run["error"] and run["results"][0]["cost"] == 45, run
+    ok.append("Send: 1 queued (45 cr), skipped: no size, Living Spaces, the same product twice in one list")
     with open(session / "links_result.csv", encoding="utf-8") as f: rows = list(csv.DictReader(f))
     assert [r["status"] for r in rows] == ["queued", "skipped", "skipped", "skipped"] and rows[0]["sent_at"] == run["id"], rows
     assert run["sheet_csv"] and Path(run["sheet_csv"]).parent == session and Path(run["sheet_csv"]).is_file(), run
@@ -154,7 +154,7 @@ try:
     ev = list((assets / "_runner" / "sheet_outbox").glob("*_approved.json")); assert len(ev) == 1, ev
     assert json.loads(ev[0].read_text(encoding="utf-8"))["file_name"].startswith(glbs[0].stem), ev
     ok.append(f"accepted -> session folder glb\\{glbs[0].name} + thumbnails\\, its sheet CSV row, vendor folder Test Shop\\, Models sheet event")
-    led = api("GET", "/api/status")["credits_today"]; assert led == 120, led; ok.append(f"credit ledger: {led} (one Tripo run; the refused sends cost nothing)")
+    led = api("GET", "/api/status")["credits_today"]; assert led == 45, led; ok.append(f"credit ledger: {led} (one Tripo run; the refused sends cost nothing)")
     print("PASS\n- " + "\n- ".join(ok))
 finally:
     app.terminate(); mock.terminate(); shop.shutdown()

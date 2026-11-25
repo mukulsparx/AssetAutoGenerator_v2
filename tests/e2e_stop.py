@@ -92,11 +92,11 @@ try:
     took = time.time() - t0; time.sleep(1)
     assert j["stopped_stage"] == "post-processing" and j["paid"] and not blenders(), (j, blenders())
     assert "stop_b-v1" not in rows(), "no card should exist yet"
-    led = api("GET", "/api/status")["credits_today"]; assert led == 120, led
+    led = api("GET", "/api/status")["credits_today"]; assert led == 45, led
     ok.append(f"stopped in Finishing: Blender killed in {took:.1f} s, paid download kept (ledger {led})")
     r = api("POST", f"/api/jobs/{j['id']}/retry", {}); assert r.get("ok"), r
     wait(lambda: rows().get("stop_b-v1"), "card after Finish it", 300)
-    assert api("GET", "/api/status")["credits_today"] == 120, "Finish it must not spend credits"
+    assert api("GET", "/api/status")["credits_today"] == 45, "Finish it must not spend credits"
     ok.append("Finish it: built from the kept download, no new credits")
 
     # --- 3: stop the QA
@@ -115,7 +115,7 @@ try:
     r = api("POST", "/api/rows/stop_b-v1/delete", {}); assert r.get("whole_product"), r
     assert "stop_b-v1" not in rows() and (assets / "_deleted" / "CORT" / "stop_b" / "rows" / "stop_b-v1.json").exists()
     assert json.loads((assets / "_deleted" / "CORT" / "stop_b" / "deleted.json").read_text())[0]["rows"] == "whole product"
-    assert not (assets / "CORT" / "stop_b").exists() and api("GET", "/api/status")["credits_today"] == 120
+    assert not (assets / "CORT" / "stop_b").exists() and api("GET", "/api/status")["credits_today"] == 45
     ok.append("Delete in Discarded: card gone, whole product folder in assets/_deleted/CORT (with a deleted.json note); ledger kept")
     print("PASS\n- " + "\n- ".join(ok))
 finally:

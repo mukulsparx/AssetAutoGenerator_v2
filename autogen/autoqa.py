@@ -6,17 +6,16 @@
 
   gate (config [qa] auto = true, and only while no person has decided the card):
     best >= accept                          -> accepted: final_glb with the best variant's steps
-    low <= best < accept, no retry yet      -> one paid retry, then the best attempt is accepted
-  (accept 65 / low 50 come from the calibration on 34 versions Mukul had judged: at 65 half of his accepted models
-  pass straight away and none of the ones he failed or didn't pick; under 50 there was none he accepted)
-    best < low, fewer than max_retries      -> paid retry: Meshy first, then Tripo with a new seed
-    otherwise                               -> accepted if best >= low, else held for a person
-  A retry answers the card like "Fail - regenerate" would (same undo window, same credit cap); the new card
-  shows the best earlier result next to the new one, so the best attempt can still win.
+    best < accept                           -> held for a person ("needs_person"); nothing is spent
+  (accept 65 comes from the calibration on 34 versions Mukul had judged: at 65 half of his accepted models pass
+  straight away and none of the ones he failed or didn't pick.)
+  Since 2026-11-25 (Mukul) a low score never starts a paid retry or a Meshy run by itself. The card offers two
+  buttons: upload a photo and resend to Tripo (exactly that photo, no Gemini drawing), or send to Meshy. Until then
+  a low score started up to max_retries paid retries (Meshy first, then Tripo with a new seed or drawn views).
 """
 import json, time
 from pathlib import Path
-from . import qa, rules as R, stopflag
+from . import qa, stopflag
 from .store import now_iso
 
 
@@ -123,42 +122,20 @@ def gate(ctx, job, asset, row_id, s=None):
                           key=lambda kv: (kv[1]["score"], -sum(1 for i in kv[1].get("issues") or [] if i["severity"] == "major")),
                           default=(None, None))
     if not best: return
-    score, retries = best["score"], int(row.get("qa_retries") or 0)
+    score = best["score"]
     note = f"QA {score}/100 ({best_side}, {best['best'].replace('_', ' ')})" + (f": {best['reason']}" if best.get("reason") else "")
-    if score >= s["accept"] or (score >= s["low"] and retries >= 1) or (retries >= s["max_retries"] and score >= s["low"]):
+    if score >= s["accept"]:
         rec = {"result": best_side, "steps": best.get("steps") or {}, "by": "qa", "note": "Accepted automatically · " + note}
         pipeline.submit_decision(cfg, st, row_id, rec)
         _mark(st, asset, row_id, "accepted", score, best_side, best)
         st.job_log(job, f"accepted {best_side} ({score}/100) with {best.get('steps') or 'no steps'}")
         return
-    if retries < (1 if score >= s["low"] else s["max_retries"]):
-        meta = st.meta(asset); files = [p["file"] for p in meta.get("photos", [])]
-        labels = meta.get("photo_labels") or {}
-        single = bool(labels) and not qa.choose_inputs(labels, files, row.get("photo"))["tripo"]
-        if single and s["drawn_views"]:
-            # one usable view only: retry 1 = Gemini-drawn views -> Tripo multi-view; retry 2 = Meshy with the photo + drawings
-            if retries == 0:
-                rg = {"service": "tripo", "mode": row.get("regen_mode") or row.get("mode"), "quad_budget": row.get("quad_budget"),
-                      "autofix": True, "new_seed": True, "photo": row.get("photo"), "drawn_views": True}
-            else:
-                rg = {"service": "meshy", "model": "meshy-7.1", "quad_budget": row.get("quad_budget"), "topology": "quad", "pbr": True,
-                      "photos": [row.get("photo")], "drawn_views": True}
-        elif retries == 0 and not vs.get("meshy"):
-            rg = {"service": "meshy", "model": "meshy-7.1", "quad_budget": row.get("quad_budget"), "topology": "quad", "pbr": True,
-                  "photos": R.meshy_default_photos(files, row.get("photo"), cfg.rules), "auto_photos": True}
-        else:
-            rg = {"service": "tripo", "mode": row.get("regen_mode") or row.get("mode"), "quad_budget": row.get("quad_budget"),
-                  "autofix": True, "new_seed": True, "photo": row.get("photo")}
-        rg.update(qa_retries=retries + 1, prev_side=best_side, note=note)
-        rec = {"result": "regenerate", "regen": rg, "by": "qa", "note": f"Retry {retries + 1} by QA · {note}"}
-        pipeline.submit_decision(cfg, st, row_id, rec)
-        _mark(st, asset, row_id, "retry", score, best_side, best, service=rg["service"], drawn=bool(rg.get("drawn_views")))
-        st.job_log(job, f"{score}/100 is under {s['accept'] if score >= s['low'] else s['low']}: retry {retries + 1} on {rg['service']}")
-        return
+    # Under accept (Mukul, 2026-11-25): no paid retry and no Meshy on its own. The card waits for a person, who can
+    # upload a photo and resend to Tripo (that exact photo, no Gemini drawing) or send it to Meshy.
     _mark(st, asset, row_id, "needs_person", score, best_side, best)
-    st.job_log(job, f"best {score}/100 after {retries} retries: left for a person")
+    st.job_log(job, f"best {score}/100 is under {s['accept']}: waiting for a person (upload a photo for Tripo, or send to Meshy)")
     from . import sheet_sync
-    sheet_sync.failed(cfg, st, asset, st.row(row_id, asset), f"Gemini gave up: best {score}/100 after {retries} retries"
+    sheet_sync.failed(cfg, st, asset, st.row(row_id, asset), f"Gemini QA scored {score}/100, under {s['accept']}: waiting for a person"
                       + (f": {best['reason']}" if best.get("reason") else ""), log=lambda m: st.job_log(job, m))
 
 

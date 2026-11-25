@@ -304,8 +304,13 @@ Generate a photograph of the exact same product. {DRAW_TURN[view]}, at the same 
 - Flat pure white (#FFFFFF) background, no props, no shadows on the background, no text or watermark.
 Output only the image."""
     parts = [{"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(_jpeg(str(photo), 1024)).decode()}}]
+    return _gen_image(key, model, parts, "4:3")
+
+
+def _gen_image(key: str, model: str, parts: list, aspect: str) -> bytes:
+    """One image from Gemini's image model (1K), with retries on busy/unreachable."""
     body = json.dumps({"contents": [{"role": "user", "parts": parts}],
-                       "generationConfig": {"responseModalities": ["TEXT", "IMAGE"], "imageConfig": {"aspectRatio": "4:3", "imageSize": "1K"}}}).encode()
+                       "generationConfig": {"responseModalities": ["TEXT", "IMAGE"], "imageConfig": {"aspectRatio": aspect, "imageSize": "1K"}}}).encode()
     for i in range(4):
         req = urllib.request.Request(GEMINI_URL.format(model=model), data=body, method="POST",
                                      headers={"Content-Type": "application/json", "x-goog-api-key": key, "User-Agent": UA})
@@ -366,3 +371,82 @@ Answer with JSON only: {{"views": [{{"view": <name>, "correct_side": true|false,
                     out[v] = {"ok": False, "why": str(it.get("why") or "Gemini judged it wrong")[:160]}
         except (QAError, ValueError, AttributeError): pass          # the outline check alone still applies
     return out
+
+
+# ---------------------------------------------------------------- one 3/4 photo for Tripo HD (2026-11-25)
+# The artists' recipe (Mukul, 2026-11-23): Tripo HD from ONE three-quarter photo, which works most of the time. When
+# the vendor has no 3/4 shot, they ask Gemini or ChatGPT for an accurate 3/4 view made from the photos there are. Tested
+# on Chester Boucle Bar Stools (straight front only): Gemini's 3/4 scored 92 and 95, nothing invented, clean HD model.
+def pick_34(labels: dict, files: list, bed: bool = False) -> str | None:
+    """The best real three-quarter photo: same setup, confidence >= 0.5; front 3/4 first, then left/right (for a bed
+    also the foot-end 3/4, which the labeller calls "back"); white background, then higher confidence."""
+    order = ("front", "left", "right") + (("back",) if bed else ())
+    ok = [f for f, l in labels.items() if f in files and isinstance(l, dict) and l.get("same_setup")
+          and l.get("confidence", 0) >= 0.5 and l.get("angle") == "three_quarter" and l.get("view") in order]
+    ok.sort(key=lambda f: (order.index(labels[f]["view"]), -(labels[f].get("white_background") is True), -labels[f]["confidence"], f))
+    return ok[0] if ok else None
+
+
+def pick_fallback(labels: dict, files: list) -> str | None:
+    """When no 3/4 can be had: the best real photo of the same setup, a straight front first, white background first."""
+    rank = {("front", "straight"): 0, ("left", "straight"): 1, ("right", "straight"): 1, ("back", "three_quarter"): 2, ("back", "straight"): 3}
+    ok = [f for f, l in labels.items() if f in files and isinstance(l, dict) and l.get("same_setup") and l.get("view") not in ("detail", "other")]
+    ok.sort(key=lambda f: (rank.get((labels[f]["view"], labels[f]["angle"]), 4), -(labels[f].get("white_background") is True),
+                           -labels[f].get("confidence", 0), f))
+    return ok[0] if ok else None
+
+
+def outline_ok_34(ratio: float | None, dims_in) -> tuple[bool, str]:
+    """The drawn 3/4's outline width / height against the listed size. A box turned 40 degrees shows about
+    0.77 W + 0.64 D; a round product (a round seat or table top) shows only max(W, D) from any angle. Both ends get the
+    same 40% margin the straight drawn views use. Returns (ok, why)."""
+    if not ratio or not dims_in or len(dims_in) != 3: return True, ""
+    W, D, H = (float(x) for x in dims_in)
+    if H <= 0: return True, ""
+    lo, hi = max(W, D) / H / 1.4, (0.77 * W + 0.64 * D) / H * 1.4
+    if lo <= ratio <= hi: return True, ""
+    return False, f"its outline is {ratio:.2f} wide per unit of height, but the listed size gives {lo:.2f} to {hi:.2f} for a three-quarter view"
+
+
+def draw_34(key: str, model: str, real: list, brief_text: str, guidance: str | None = None) -> bytes:
+    """Gemini draws the product in a three-quarter view from the real photo(s) (prompt as tested 2026-11-23)."""
+    note = f"\nA previous drawing was rejected because: {guidance}. Do not repeat that." if guidance else ""
+    prompt = f"""The image{'s show' if len(real) > 1 else ' shows'} this catalog product:
+{brief_text}{note}
+
+Generate a studio product photograph of the exact same product from a three-quarter view: the camera is turned about 40 degrees to the side of the front, so the front and one side both show clearly, and raised a little above the product's mid-height, looking slightly down, so the top surface shows as well. The whole product is visible and centred.
+- Match the photo precisely: the same materials, colours, wood grain, upholstery texture, hardware, proportions and dimensions. Nothing added, nothing removed. Parts the photo cannot show (the depth, the side, rails or stretchers behind) follow the most likely construction of this exact design and the listed size.
+- Flat pure white (#FFFFFF) background, no props, no shadows on the background, no text or watermark.
+Output only the image."""
+    parts = [{"text": prompt}] + [{"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(_jpeg(str(p), 1024)).decode()}} for p in real]
+    return _gen_image(key, model, parts, "1:1")
+
+
+def check_34(key: str, model: str, real: list, img: bytes, brief_text: str, dims_in) -> dict:
+    """Gemini judges the drawn 3/4 against the real photos, strictly, as if a 3D model is built from it alone; plus the
+    outline check. {"ok", "why", "score", "invented", "missing", "outline", "usd"}."""
+    ok_outline, why_outline = outline_ok_34(silhouette_ratio(img), dims_in)
+    if not ok_outline: return {"ok": False, "why": why_outline, "outline_ok": False}
+    n = len(real)
+    prompt = f"""Image{'s 1 to ' + str(n) if n > 1 else ' 1'} {'are' if n > 1 else 'is'} the real product photo{'s' if n > 1 else ''}. The last image is a generated three-quarter view meant to show the same product.
+{brief_text}
+Compare the generated view against the real photo{'s' if n > 1 else ''} and the listed size. Judge strictly, as if a 3D model will be built from the generated view alone:
+- same_product: is it recognisably this exact product (shape, materials, colours)?
+- invented: parts, details or hardware the real product would not have.
+- missing: parts the real photo shows that the generated view lacks or changes.
+- proportions_ok: do width, depth and height look consistent with the listed size and with the real photo?
+- usable: would you send this generated view to a 3D generator in place of a real three-quarter photo?
+Answer with JSON only: {{"same_product": true|false, "invented": [<short strings>], "missing": [<short strings>], "proportions_ok": true|false, "usable": true|false, "score": <0-100 match to the real product>, "why": <one sentence>}}"""
+    parts = [{"text": prompt}] + [{"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(_jpeg(str(p))).decode()}} for p in real]
+    parts.append({"inline_data": {"mime_type": "image/png" if img[:4] == b"\x89PNG" else "image/jpeg", "data": base64.b64encode(img).decode()}})
+    resp = call_gemini(key, model, parts, timeout=120)
+    text = "".join(x.get("text", "") for c in (resp.get("candidates") or [])[:1] for x in (c.get("content") or {}).get("parts") or [])
+    try: j = json.loads(text)
+    except ValueError: raise QAError(f"Gemini returned no usable check ({text[:120]!r})")
+    if not isinstance(j, dict): raise QAError("Gemini returned no usable check")
+    um = resp.get("usageMetadata") or {}; mv = resp.get("modelVersion") or model
+    inv = [str(x) for x in (j.get("invented") or [])][:6]; mis = [str(x) for x in (j.get("missing") or [])][:6]
+    ok = bool(j.get("usable") and j.get("same_product") and j.get("proportions_ok") and not inv)
+    why = "" if ok else (str(j.get("why") or "") or "; ".join(inv + mis) or "Gemini judged it unusable")[:240]
+    return {"ok": ok, "why": why, "score": j.get("score"), "invented": inv, "missing": mis, "outline_ok": True,
+            "usd": usd(mv, int(um.get("promptTokenCount") or 0), int(um.get("candidatesTokenCount") or 0) + int(um.get("thoughtsTokenCount") or 0))}

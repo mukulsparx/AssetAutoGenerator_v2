@@ -19,12 +19,17 @@ class Ctx:
         c = self.cfg.data.get("credits", {})
         if service == "meshy": return int(c.get("meshy", 30))
         if service == "tripo_texture": return int(c.get("tripo_texture", 30))
+        if is_h31(self.cfg, mode): return int(c.get("tripo_h31", 45))   # 40 detailed texture + 5 quad (Tripo's records, 2026-11-23)
         if is_p2(self.cfg, mode): return int(c.get("tripo_p2", 100))
         return int(c.get("tripo_hd", 30) if mode == "hd" else c.get("tripo_smart_mesh", 50))
 
 
 def is_p2(cfg, mode) -> bool:
     return str((cfg.rules.get("modes", {}).get(mode or "p2") or {}).get("model_version", "")).upper().startswith("P2")
+
+
+def is_h31(cfg, mode) -> bool:
+    return str((cfg.rules.get("modes", {}).get(mode or "p2") or {}).get("model_version", "")).startswith("v3.1")
 
 
 def run_job(ctx: Ctx, job: dict, beat):
@@ -211,7 +216,9 @@ def generate(ctx, job, beat):
     for f in [p for p in photos if p]:
         if not src(f).exists(): raise RuntimeError(f"photo {f} is missing from source_images")
     raw = work / f"{service}_raw.glb"
-    if not raw.exists() and spec.get("drawn_views") and not job.get("task_id"):
+    if not raw.exists() and service == "tripo" and is_h31(ctx.cfg, spec.get("mode")) and not job.get("task_id"):
+        photos = _tripo_34(ctx, job, asset, meta) or photos      # HD: one 3/4 photo, real or drawn (artists' recipe)
+    elif not raw.exists() and spec.get("drawn_views") and not job.get("task_id"):
         photos = _drawn_photos(ctx, job, asset, meta, service) or photos
     elif not raw.exists() and spec.get("auto_photos") and not job.get("task_id"):
         photos = _smart_photos(ctx, job, asset, meta, service) or photos
@@ -231,8 +238,13 @@ def generate(ctx, job, beat):
             def submit(api):
                 files = [api.upload(str(_png(src(f), work))) if f else None for f in photos]
                 stopflag.check("before the paid Tripo task")      # last moment a stop costs nothing
-                return api.create(clients.Tripo.body(mode_cfg, spec["quad_budget"], files, seeds, spec.get("autofix", True)))
+                return api.create(clients.Tripo.body(mode_cfg, spec["quad_budget"], files, seeds, spec.get("autofix", False)))
             res = _gen_paid(ctx, job, beat, "tripo", submit, 1200)
+            if res.get("credits") is not None and is_h31(ctx.cfg, spec.get("mode")):
+                # what Tripo actually charged (the ledger holds the estimate taken before the task)
+                actual = int(res["credits"]); job["credits_actual"] = actual
+                if actual != int(job.get("credits") or 0): _log(ctx, job, f"Tripo charged {actual} credits (estimated {job.get('credits')})")
+                job["credits"] = actual; st.save_job(job)
             if is_p2(ctx.cfg, spec.get("mode")):
                 # P2: the mesh came without a texture; texture it as its own task, like the Tripo website does
                 tq = ctx.cfg.get("tripo", "texture_quality", "detailed"); tm = ctx.cfg.get("tripo", "texture_model", "v3.5-20260815")
@@ -240,8 +252,21 @@ def generate(ctx, job, beat):
                                 1200, key="texture_task_id", stage="texturing")
                 _log(ctx, job, f"textured with Tripo {tm} ({tq})")
         job["stage"] = "downloading"; st.save_job(job)
-        clients.download(res["url"], raw.with_suffix(".part")); os.replace(raw.with_suffix(".part"), raw)
-        _log(ctx, job, "downloaded model")
+        part = raw.with_suffix(".part"); clients.download(res["url"], part)
+        with open(part, "rb") as fh: head = fh.read(20)
+        if head.startswith(b"Kaydara FBX"):
+            # Tripo quad output (H3.1) is an FBX with the 4K PBR maps embedded: keep it as delivered, then convert it in
+            # Blender (default FBX import, default GLB export) so post-processing gets the GLB it always had.
+            fbx = raw.with_suffix(".fbx"); os.replace(part, fbx)
+            _log(ctx, job, "downloaded model (FBX); converting to GLB in Blender")
+            job["stage"] = "converting FBX"; st.save_job(job)
+            conv = raw.with_name(raw.stem + "_conv.glb")
+            blender.run(ctx.cfg.blender, "fbx_to_glb.py", [str(fbx), str(conv)], log=lambda m: _log(ctx, job, m), timeout=600)
+            if not conv.exists() or conv.stat().st_size < 1000: raise RuntimeError("FBX to GLB conversion made no GLB")
+            os.replace(conv, raw)
+        else:
+            os.replace(part, raw)
+            _log(ctx, job, "downloaded model")
     stopflag.check("before Blender")                      # a stop asked for while Tripo/Meshy was busy lands here
     job["stage"] = "post-processing"; st.save_job(job)
     recipe = {"pp": spec["pp"], "source": service, "close_back": spec.get("close_back", False), "units": units, "raw": st.rel(asset, raw)}
@@ -261,15 +286,14 @@ def generate(ctx, job, beat):
     _queue_qa(ctx, asset, row_id)
 
 
-def _smart_photos(ctx, job, asset, meta, service):
-    """v2: send every usable real photo. Gemini labels each photo once (front / back / left / right / three-quarter,
-    same setup or not; cached in meta.json), then Tripo gets a multi-view run when there is a straight front plus
-    another straight side, and Meshy gets the best 4 views. Falls back to the job's own photos without a Gemini key."""
+def _ensure_labels(ctx, job, asset, meta):
+    """Gemini labels each source photo once (view, angle, same setup, white background; cached in meta.json, redone
+    when the file changes). Returns (labels, files); labels is None without a Gemini key or when Gemini fails."""
     from . import qa
-    st, spec, cfg = ctx.store, job["spec"], ctx.cfg
-    key = cfg.key("GEMINI_API_KEY")
-    if not key: return None
+    st, cfg = ctx.store, ctx.cfg
     adir = st.adir(asset); files = sorted(p.name for p in (adir / "source_images").glob("*") if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png"))
+    key = cfg.key("GEMINI_API_KEY")
+    if not key: return None, files
     labels = dict(meta.get("photo_labels") or {})
     todo = [f for f in files if f not in labels or labels[f].get("size") != (adir / "source_images" / f).stat().st_size]
     if todo:
@@ -278,11 +302,85 @@ def _smart_photos(ctx, job, asset, meta, service):
             got = qa.label_photos(key, cfg.get("qa", "model", "gemini-flash-latest"), qa.brief(meta, {}, {}, cfg.rules),
                                   [adir / "source_images" / f for f in todo])
         except qa.QAError as e:
-            _log(ctx, job, f"photo labels not available ({e}); using the photos chosen at submit"); return None
+            _log(ctx, job, f"photo labels not available ({e}); using the photos chosen at submit"); return None, files
         got.pop("_usd", None)
         for f, l in got.items(): labels[f] = {**l, "size": (adir / "source_images" / f).stat().st_size}
         m = st.meta(asset); m["photo_labels"] = labels; st.save_meta(asset, m)
         _log(ctx, job, "photos: " + ", ".join(f"{f} = {l['view']} {l['angle']}{'' if l['same_setup'] else ' (different setup)'}" for f, l in labels.items() if f in files))
+    return labels, files
+
+
+def _tripo_34(ctx, job, asset, meta):
+    """Tripo HD gets ONE photo, the artists' recipe (Mukul, 2026-11-23/25):
+      1. a photo a person chose (uploaded on a low-score card, or pressed in the regenerate form) goes as it is;
+      2. else the best real three-quarter photo by Gemini's labels (qa.pick_34; for a bed also the foot-end 3/4);
+      3. else Gemini draws a 3/4 from the real photos and checks it (outline against the listed size, and Gemini:
+         same product, nothing invented, proportions right); a rejected drawing is redrawn once with the reason.
+         A kept drawing is saved as source_images/_drawn/34_tryN.png and reused by later runs;
+      4. if both drawings are rejected, the best real photo goes, and the card says so.
+    All of this happens before any Tripo credit is spent. Without a Gemini key the job's own photo goes."""
+    from . import qa
+    from .store import read_json, write_json
+    st, spec, cfg = ctx.store, job["spec"], ctx.cfg
+    adir = st.adir(asset)
+    def done(photo, note):
+        spec["photos"] = [photo]; spec["ref_photo"] = photo; spec["inputs_note"] = note
+        st.save_job(job); _log(ctx, job, note); return spec["photos"]
+    if spec.get("photo_locked") and spec["photos"] and spec["photos"][0]:
+        return done(spec["photos"][0], "Tripo got the photo you " + ("uploaded" if spec.get("user_photo") else "picked") + " (as it is, no Gemini drawing).")
+    labels, files = _ensure_labels(ctx, job, asset, meta)
+    if labels is None: return None
+    bed = (spec.get("pp") or {}).get("category") == "bed" or spec.get("category_key") == "bed"
+    real34 = qa.pick_34(labels, files, bed)
+    if real34:
+        l = labels[real34]
+        return done(real34, f"Tripo got one real three-quarter photo ({l['view']} 3/4{', white background' if l.get('white_background') else ''}).")
+    # no real 3/4: a drawn one, checked before any Tripo spend
+    ddir = adir / "source_images" / "_drawn"; state = read_json(ddir / "three_quarter.json", {}) or {}
+    if state.get("ok") and (adir / "source_images" / state["file"]).exists():
+        return done(state["file"], f"Tripo got the Gemini-drawn three-quarter view kept earlier (check score {state.get('score')}).")
+    fallback = qa.pick_fallback(labels, files) or (spec["photos"][0] if spec["photos"] else None)
+    real = [adir / "source_images" / f for f, l in labels.items() if f in files and isinstance(l, dict)
+            and l.get("same_setup") and l.get("view") not in ("detail", "other")][:4]
+    key = cfg.key("GEMINI_API_KEY")
+    if not real:
+        return done(fallback, "No real three-quarter photo and no clean photo to draw one from; Tripo got the photo chosen at submit.")
+    ddir.mkdir(parents=True, exist_ok=True)
+    brief = qa.brief(meta, {}, {}, cfg.rules).split("\nDone on purpose")[0]
+    img_model = cfg.get("qa", "image_model", "gemini-3.1-flash-image"); txt_model = cfg.get("qa", "model", "gemini-flash-latest")
+    why = None; tries = []
+    for n in (1, 2):
+        stopflag.check()
+        job["stage"] = "Gemini drawing a three-quarter view" + (" (second try)" if n == 2 else ""); st.save_job(job)
+        try:
+            img = qa.draw_34(key, img_model, real, brief, why)
+            ext = ".png" if img[:4] == b"\x89PNG" else ".jpg"          # (no backslash inside an f-string: Python 3.11)
+            name = f"34_try{n}{ext}"; (ddir / name).write_bytes(img)
+            job["stage"] = "Gemini checking the drawn three-quarter view"; st.save_job(job)
+            v = qa.check_34(key, txt_model, real, img, brief, meta.get("dims_in"))
+        except qa.QAError as e:
+            _log(ctx, job, f"three-quarter view not drawn or checked: {e}"); tries.append(str(e)[:120]); break
+        tries.append(v["why"] or "kept")
+        _log(ctx, job, f"drawn three-quarter, try {n}: " + (f"kept (score {v.get('score')})" if v["ok"] else f"rejected ({v['why']})"))
+        if v["ok"]:
+            state = {"file": f"_drawn/{name}", "ok": True, "score": v.get("score"), "from": [p.name for p in real], "at": now_iso()}
+            write_json(ddir / "three_quarter.json", state)
+            return done(state["file"], f"No real three-quarter photo: Tripo got a Gemini-drawn three-quarter view, checked against "
+                        f"{len(real)} real photo{'s' if len(real) > 1 else ''} (score {v.get('score')}).")
+        why = v["why"]
+    write_json(ddir / "three_quarter.json", {"ok": False, "tries": tries, "at": now_iso()})
+    return done(fallback, "No real three-quarter photo, and the Gemini-drawn one was rejected (" + "; ".join(tries)
+                + "): Tripo got the best real photo instead.")
+
+
+def _smart_photos(ctx, job, asset, meta, service):
+    """v2: send every usable real photo. Gemini labels each photo once (front / back / left / right / three-quarter,
+    same setup or not; cached in meta.json), then Tripo gets a multi-view run when there is a straight front plus
+    another straight side, and Meshy gets the best 4 views. Falls back to the job's own photos without a Gemini key."""
+    from . import qa
+    st, spec, cfg = ctx.store, job["spec"], ctx.cfg
+    labels, files = _ensure_labels(ctx, job, asset, meta)
+    if labels is None: return None
     single = spec.get("ref_photo") or next((p for p in spec["photos"] if p), None)
     ch = qa.choose_inputs(labels, files, single, int(cfg.rules["modes"].get("meshy", {}).get("max_photos", 4)))
     if service == "meshy":
